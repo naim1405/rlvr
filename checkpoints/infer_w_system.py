@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """You must always answer using the following format:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="Qwen/Qwen3-0.6B")
-    parser.add_argument("--adapter", default="/tmp/checkpoints/checkpoints/epoch_2_step_86/model")
+    parser.add_argument("--adapter", default="/tmp/checkpoints/checkpoints.system/epoch_2_step_86/model")
     parser.add_argument(
         "--question",
         default="A train travels at 98 miles per hour. How far does it travel in 30 hours?",
