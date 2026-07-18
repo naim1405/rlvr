@@ -1,4 +1,13 @@
-# Qwen PEFT/LoRA SFT recipe for NeMo AutoModel Docker.
+# Qwen PEFT/LoRA SFT recipe for the final SRP corpus.
+#
+# Expected layout inside the Docker container:
+#   /tmp/checkpoints/
+#     recipe.yaml
+#     mydataset.py
+#     new-dataset/
+#       corpus/
+#         p0/ ... p6/
+#
 # Run inside container from /tmp/checkpoints:
 #   automodel recipe.yaml
 # or multi-GPU:
@@ -9,11 +18,11 @@ recipe: TrainFinetuneRecipeForNextTokenPrediction
 step_scheduler:
   global_batch_size: 32
   local_batch_size: 4
-  ckpt_every_steps: 25
-  val_every_steps: 25
-  num_epochs: 3
+  ckpt_every_steps: 500
+  val_every_steps: 500
+  num_epochs: 2
 
-# NCCL is required for GPU training. Increase timeout a bit to avoid false failures
+# NCCL is required for GPU training. Increase timeout to avoid false failures
 # during first HF model download/load.
 dist_env:
   backend: nccl
@@ -58,14 +67,13 @@ loss_fn:
   _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
 
 dataset:
-  # Use file-path target for Docker bind mounts. This avoids the import failure from
-  # trying to resolve `checkpoints.mydataset.QwenSFTDataset` while already inside
-  # /tmp/checkpoints.
   _target_: /tmp/checkpoints/mydataset.py:QwenSFTDataset
-  path: /tmp/checkpoints/dataset.json
+  root: /tmp/checkpoints/new-dataset/corpus
+  families: [p0, p1, p2, p3, p4, p5, p6]
   split: train
-  validation_fraction: 0.1
+  validation_fraction: 0.02
   max_length: 2048
+  include_system_prompt: false
 
 packed_sequence:
   packed_sequence_size: 0
@@ -78,10 +86,13 @@ dataloader:
 
 validation_dataset:
   _target_: /tmp/checkpoints/mydataset.py:QwenSFTDataset
-  path: /tmp/checkpoints/dataset.json
+  root: /tmp/checkpoints/new-dataset/corpus
+  families: [p0, p1, p2, p3, p4, p5, p6]
   split: validation
-  validation_fraction: 0.1
+  validation_fraction: 0.02
   max_length: 2048
+  include_system_prompt: false
+  num_samples_limit: 1024
 
 validation_dataloader:
   _target_: torchdata.stateful_dataloader.StatefulDataLoader
