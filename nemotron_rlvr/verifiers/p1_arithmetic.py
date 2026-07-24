@@ -1,42 +1,84 @@
+"""P1 (Arithmetic) verifier based on srp.verify.sympy_eq."""
+
+from __future__ import annotations
+
 import re
+from typing import Any
+import sympy
+from sympy.parsing.sympy_parser import (
+    convert_xor,
+    implicit_multiplication_application,
+    parse_expr,
+    standard_transformations,
+)
+
+from verifiers._util import TimeoutExceeded, extract_answer, run_with_timeout
+
+_TRANSFORMS = standard_transformations + (
+    implicit_multiplication_application,
+    convert_xor,
+)
+
+
+def _parse(text: str, symbols: list[str]) -> Any:
+    local = {s: sympy.Symbol(s) for s in symbols}
+    return parse_expr(
+        text,
+        local_dict=local,
+        transformations=_TRANSFORMS,
+        evaluate=True,
+    )
 
 
 class ArithmeticVerifier:
-    """Verifier for P1: Arithmetic tasks."""
+    """Verifier for P1: Arithmetic tasks using SymPy equivalence and numeric tolerance."""
 
     def __init__(self, reward_params: dict = None):
         reward_params = reward_params or {}
-        self.tolerance = float(reward_params.get("tolerance", 1e-5))
-
-    def extract_number(self, text: str) -> float | None:
-        """Extract floating point number from model response."""
-        match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL | re.IGNORECASE)
-        ans_str = match.group(1).strip() if match else text.strip()
-        
-        # Look for numbers (including decimals, fractions, or negative numbers)
-        num_match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", ans_str)
-        if num_match:
-            try:
-                return float(num_match.group(0))
-            except ValueError:
-                return None
-        return None
+        self.default_atol = float(reward_params.get("tolerance", 1e-5))
 
     def verify(self, model_response: str, extra_env_info: dict) -> float:
-        """Verifies numerical result against expected value within tolerance."""
-        expected_raw = extra_env_info.get("expected_answer", None)
-        if expected_raw is None:
+        ans = extract_answer(model_response)
+        if ans is None:
             return 0.0
+
+        meta = extra_env_info.get("verifier_meta") or {}
+        mode = meta.get("mode", "equiv")
+        symbols = list(meta.get("symbols", []))
+        timeout_s = float(meta.get("timeout_s", 3.0))
+        gt_text = str(extra_env_info.get("expected_answer", ""))
+
+        def _judge() -> bool:
+            try:
+                pred = _parse(ans, symbols)
+                gt = _parse(gt_text, symbols)
+            except Exception:
+                # Fallback to direct numeric extract
+                try:
+                    num_match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", ans)
+                    if num_match:
+                        return abs(float(num_match.group(0)) - float(gt_text)) <= self.default_atol
+                except Exception:
+                    pass
+                return False
+
+            if mode == "numeric":
+                atol = float(meta.get("atol", self.default_atol))
+                try:
+                    diff = abs(complex(sympy.N(pred)) - complex(sympy.N(gt)))
+                    return diff <= atol
+                except Exception:
+                    return False
+
+            try:
+                return bool(sympy.simplify(pred - gt) == 0)
+            except Exception:
+                return False
 
         try:
-            expected = float(expected_raw)
-        except (ValueError, TypeError):
+            ok = run_with_timeout(_judge, timeout_s)
+            return 1.0 if ok else 0.0
+        except TimeoutExceeded:
             return 0.0
-
-        predicted = self.extract_number(model_response)
-        if predicted is None:
+        except Exception:
             return 0.0
-
-        if abs(predicted - expected) <= self.tolerance:
-            return 1.0
-        return 0.0
