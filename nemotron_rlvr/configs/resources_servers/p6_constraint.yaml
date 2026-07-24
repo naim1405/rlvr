@@ -1,0 +1,7 @@
+resources_servers:
+  p6_constraint:
+    entrypoint: "verifiers.p6_constraint:ConstraintVerifier"
+    num_processes: 64
+    timeout_secs: 5
+    reward_params:
+      allow_partial_credit: true

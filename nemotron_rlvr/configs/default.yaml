@@ -1,0 +1,106 @@
+run:
+  data: data/train-split.jsonl
+  model: checkpoints/qwen_merged_sft
+  env:
+    container: nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
+    env_vars:
+      NRL_VLLM_USE_V1: "1"
+      VLLM_ATTENTION_BACKEND: "FLASH_ATTN"
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: "checkpoints/rlvr_results"
+  metric_name: "val:total_reward/mean"
+  higher_is_better: true
+  keep_top_k: 5
+  save_period: 10
+  model_save_format: "safetensors"
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 4
+  num_val_generations_per_prompt: 2
+  max_rollout_turns: 1
+  max_num_epochs: 1
+  max_num_steps: 1000
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  advantage_clip_low: -50
+  advantage_clip_high: 50
+  penalize_invalid_tool_call: true
+  invalid_tool_call_advantage: -5.0
+  penalize_malformed_thinking: true
+  malformed_thinking_advantage: -5.0
+
+  async_grpo:
+    enabled: true
+    max_trajectory_age_steps: 1
+    in_flight_weight_updates: true
+    recompute_kv_cache_after_weight_updates: false
+
+loss_fn:
+  reference_policy_kl_penalty: 0.0
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.28
+  use_importance_sampling_correction: true
+  truncated_importance_sampling_ratio: 5
+  token_level_loss: true
+
+policy:
+  model_name: "checkpoints/qwen_merged_sft"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 16
+  train_micro_batch_size: 1
+  generation_batch_size: 4
+  logprob_batch_size: 1
+  max_total_sequence_length: 4096
+  precision: "bfloat16"
+
+  megatron_cfg:
+    enabled: true
+    activation_checkpointing: true
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    sequence_parallel: false
+    optimizer:
+      optimizer: "adam"
+      lr: 3.0e-6
+      adam_beta1: 0.9
+      adam_beta2: 0.999
+      use_distributed_optimizer: false
+
+  generation:
+    backend: "vllm"
+    max_new_tokens: 4096
+    temperature: 1.0
+    top_p: 1.0
+    colocated:
+      enabled: true
+    vllm_cfg:
+      tensor_parallel_size: 1
+      gpu_memory_utilization: 0.4
+      max_model_len: 4096
+      enforce_eager: false
+
+data:
+  train:
+    data_path: "data/train-split.jsonl"
+  validation:
+    data_path: "data/val-split.jsonl"
+
+env:
+  should_use_nemo_gym: true
+  nemo_gym:
+    port_range_low: 15001
+    port_range_high: 20000
+    config_paths:
+      - configs/resources_servers/p0_retrieval.yaml
+      - configs/resources_servers/p1_arithmetic.yaml
+      - configs/resources_servers/p2_symbolic.yaml
+      - configs/resources_servers/p3_logic.yaml
+      - configs/resources_servers/p4_planning.yaml
+      - configs/resources_servers/p5_pattern.yaml
+      - configs/resources_servers/p6_constraint.yaml

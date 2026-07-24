@@ -1,0 +1,6 @@
+resources_servers:
+  p5_pattern:
+    entrypoint: "verifiers.p5_pattern:PatternVerifier"
+    num_processes: 64
+    timeout_secs: 2
+    reward_params: {}

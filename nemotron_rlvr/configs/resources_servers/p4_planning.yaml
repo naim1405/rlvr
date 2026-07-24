@@ -1,0 +1,7 @@
+resources_servers:
+  p4_planning:
+    entrypoint: "verifiers.p4_planning:PlanningVerifier"
+    num_processes: 64
+    timeout_secs: 3
+    reward_params:
+      allow_partial_credit: true

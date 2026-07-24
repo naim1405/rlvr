@@ -1,0 +1,8 @@
+resources_servers:
+  p0_retrieval:
+    entrypoint: "verifiers.p0_retrieval:RetrievalVerifier"
+    num_processes: 64
+    timeout_secs: 2
+    reward_params:
+      case_sensitive: false
+      strip_punctuation: true

@@ -1,0 +1,7 @@
+resources_servers:
+  p1_arithmetic:
+    entrypoint: "verifiers.p1_arithmetic:ArithmeticVerifier"
+    num_processes: 64
+    timeout_secs: 2
+    reward_params:
+      tolerance: 1e-5

@@ -1,0 +1,6 @@
+resources_servers:
+  p3_logic:
+    entrypoint: "verifiers.p3_logic:LogicVerifier"
+    num_processes: 64
+    timeout_secs: 2
+    reward_params: {}
