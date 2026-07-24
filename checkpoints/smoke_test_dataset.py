@@ -1,18 +1,15 @@
-
 import argparse
-from pprint import pprint
-
+from pathlib import Path
 from transformers import AutoTokenizer
 
-from mydataset import QwenSFTDataset
+from mydataset import QwenPEFTDataset
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="Qwen/Qwen3-0.6B")
-    parser.add_argument("--root", default="/tmp/checkpoints/new-dataset/corpus")
+    parser.add_argument("--path", default="/home/ezio/Projects/rlhf/rlvr/checkpoints/dataset/train.jsonl")
     parser.add_argument("--split", default="train")
-    parser.add_argument("--families", nargs="*", default=["p0", "p1"])
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.02)
     parser.add_argument("--num-examples", type=int, default=3)
@@ -22,20 +19,17 @@ def main():
     print("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(args.base, trust_remote_code=True)
 
-    print("Loading dataset...")
-    ds = QwenSFTDataset(
+    print(f"Loading dataset from {args.path}...")
+    ds = QwenPEFTDataset(
         tokenizer=tokenizer,
-        root=args.root,
+        path=args.path,
         split=args.split,
-        families=args.families,
         max_length=args.max_length,
         validation_fraction=args.validation_fraction,
         include_system_prompt=args.include_system_prompt,
     )
 
-    print(f"Loaded {len(ds)} samples")
-    print(f"Families: {args.families}")
-    print(f"Split: {args.split}")
+    print(f"Loaded {len(ds)} samples for split='{args.split}'")
     print()
 
     for i in range(min(args.num_examples, len(ds))):
@@ -45,16 +39,11 @@ def main():
         print(f"===== EXAMPLE {i} =====")
         print("instance_id:", raw.get("instance_id"))
         print("family:", raw.get("family"))
-        print("generator:", raw.get("generator"))
-        print("verifier:", raw.get("verifier"))
-        print("prompt preview:")
-        print(raw["prompt"][:700])
+        print("user prompt preview:")
+        print(ds._extract_user_prompt(raw)[:400])
         print()
-        print("canonical answer used for training:")
-        print(ds._canonical_answer(raw))
-        print()
-        print("assistant target:")
-        print(ds._build_assistant_response(raw))
+        print("assistant completion preview:")
+        print(ds._extract_assistant_completion(raw)[:400])
         print()
         print("tensor lengths:")
         print({

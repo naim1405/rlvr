@@ -1,12 +1,11 @@
-# Qwen PEFT/LoRA SFT recipe for the final SRP corpus.
+# Qwen PEFT/LoRA SFT recipe for output format learning.
 #
 # Expected layout inside the Docker container:
 #   /tmp/checkpoints/
 #     recipe.yaml
 #     mydataset.py
-#     new-dataset/
-#       corpus/
-#         p0/ ... p6/
+#     dataset/
+#       train.jsonl
 #
 # Run inside container from /tmp/checkpoints:
 #   automodel recipe.yaml
@@ -67,9 +66,8 @@ loss_fn:
   _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
 
 dataset:
-  _target_: /tmp/checkpoints/mydataset.py:QwenSFTDataset
-  root: /tmp/checkpoints/new-dataset/corpus
-  families: [p0, p1, p2, p3, p4, p5, p6]
+  _target_: /tmp/checkpoints/mydataset.py:QwenPEFTDataset
+  path: /tmp/checkpoints/dataset/train.jsonl
   split: train
   validation_fraction: 0.02
   max_length: 2048
@@ -85,9 +83,8 @@ dataloader:
   group_by_length: true
 
 validation_dataset:
-  _target_: /tmp/checkpoints/mydataset.py:QwenSFTDataset
-  root: /tmp/checkpoints/new-dataset/corpus
-  families: [p0, p1, p2, p3, p4, p5, p6]
+  _target_: /tmp/checkpoints/mydataset.py:QwenPEFTDataset
+  path: /tmp/checkpoints/dataset/train.jsonl
   split: validation
   validation_fraction: 0.02
   max_length: 2048
