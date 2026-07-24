@@ -4,3 +4,5 @@ note/
 checkpoints/checkpoints*
 others/
 *.jsonl
+
+.venv
