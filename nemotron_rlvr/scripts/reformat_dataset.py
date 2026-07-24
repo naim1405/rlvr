@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Dataset reformatting script for checkpoints/new-dataset/corpus (P0-P6).
+"""Dataset reformatting script for nemotron_rlvr/dataset (P0-P6).
 
-Reads the multi-family JSONL corpus directory (p0/ ... p6/) using:
+Reads the multi-family JSONL corpus directory (p0/ ... p6/) inside nemotron_rlvr/dataset using:
   - train.jsonl for training
   - test_ood.jsonl for validation/test
 Maintains original split boundaries without re-splitting.
@@ -10,9 +10,9 @@ Maintains original split boundaries without re-splitting.
 import json
 from pathlib import Path
 
-CORPUS_DIR = Path(__file__).parent.parent.parent / "checkpoints" / "new-dataset" / "corpus"
+CORPUS_DIR = Path(__file__).parent.parent / "dataset"
 if not CORPUS_DIR.exists():
-    CORPUS_DIR = Path(__file__).parent.parent / "checkpoints" / "new-dataset" / "corpus"
+    CORPUS_DIR = Path(__file__).parent.parent.parent / "nemotron_rlvr" / "dataset"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 

@@ -8,7 +8,7 @@ from mydataset import QwenPEFTDataset
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="Qwen/Qwen3-0.6B")
-    parser.add_argument("--path", default="/home/ezio/Projects/rlhf/rlvr/checkpoints/dataset/train.jsonl")
+    parser.add_argument("--path", default="/home/ezio/Projects/rlhf/rlvr/0.peft/dataset/train.jsonl")
     parser.add_argument("--split", default="train")
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.02)

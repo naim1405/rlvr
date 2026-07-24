@@ -12,67 +12,73 @@ This repository contains a full **Reinforcement Learning with Verifiable Rewards
 
 ---
 
-## Project Layout
+## Workspace Structure
 
-```
-.
-├── configs/
-│   ├── default.yaml                 # Master RLVR & NeMo Gym config
-│   └── resources_servers/           # 7 NeMo Gym environment configs (p0.yaml .. p6.yaml)
-├── verifiers/                       # Python verifiers for P0-P6
-│   ├── p0_retrieval.py
-│   ├── p1_arithmetic.py
-│   ├── p2_symbolic.py
-│   ├── p3_logic.py
-│   ├── p4_planning.py
-│   ├── p5_pattern.py
-│   └── p6_constraint.py
-├── scripts/
-│   ├── reformat_dataset.py          # Formats phase2 dataset to JSONL splits
-│   └── merge_peft.py                # Merges LoRA PEFT adapter into base Qwen model
-├── data/                            # Generated train/val JSONL splits
-├── train_utils.py                   # Dataset loading helper functions
-├── train.py                         # Main RLVR Async-GRPO training script
-└── README.md
+```text
+rlvr/
+├── 0.peft/                          # PEFT SFT module (Format learning)
+│   ├── recipe.yaml                  # NeMo AutoModel PEFT SFT recipe
+│   ├── mydataset.py                 # QwenPEFTDataset loader
+│   ├── smoke_test_dataset.py        # Dataset verification script
+│   └── dataset/                     # PEFT SFT dataset (train.jsonl)
+└── nemotron_rlvr/                   # Custom RLVR pipeline module
+    ├── dataset/                     # Multi-family RLVR corpus (p0/ .. p6/)
+    ├── configs/
+    │   ├── default.yaml             # Master RLVR & NeMo Gym config
+    │   ├── single_gpu.yaml          # Single GPU test config
+    │   ├── cluster_8gpu.yaml        # 8 x A100 GPU cluster deployment config
+    │   └── resources_servers/       # 7 NeMo Gym environment configs (p0.yaml .. p6.yaml)
+    ├── verifiers/                   # Python verifiers for P0-P6
+    │   ├── p0_retrieval.py
+    │   ├── p1_arithmetic.py
+    │   ├── p2_symbolic.py
+    │   ├── p3_logic.py
+    │   ├── p4_planning.py
+    │   ├── p5_pattern.py
+    │   └── p6_constraint.py
+    ├── scripts/
+    │   ├── reformat_dataset.py      # Formats dataset/ to JSONL splits (train-split.jsonl)
+    │   └── merge_peft.py            # Merges 0.peft adapter into base Qwen model
+    ├── data/                        # Generated train/val JSONL splits
+    ├── train_utils.py               # Dataset loading helper functions
+    ├── train.py                     # Main RLVR Async-GRPO training script
+    └── README.md
 ```
 
 ---
 
 ## Execution Workflow
 
-### Step 1: Reformat Dataset
+### Step 1: Train PEFT Format Model (in `0.peft`)
 ```bash
-python scripts/reformat_dataset.py
+# Inside container from /tmp/0.peft:
+automodel recipe.yaml
 ```
 
-### Step 2: Merge PEFT Adapter (if using LoRA)
+### Step 2: Merge PEFT Adapter into Base Model
 ```bash
-python scripts/merge_peft.py \
-    --base /path/to/qwen_base \
-    --adapter /path/to/peft_adapter \
-    --output checkpoints/qwen_merged_sft
+cd /home/ezio/Projects/rlhf/rlvr/nemotron_rlvr
+python3 scripts/merge_peft.py \
+    --base Qwen/Qwen3-0.6B \
+    --adapter /path/to/0.peft/checkpoints/epoch_2/model \
+    --output /path/to/qwen_merged_sft
 ```
 
----
-
-## Deployment Configurations
-
-### Option A: Single GPU Testing Setup (e.g., RTX A4500 / 20GB VRAM)
-
-Use the dedicated single GPU configuration file (`configs/single_gpu.yaml`):
-
+### Step 3: Reformat RLVR Dataset
 ```bash
-python train.py --config configs/single_gpu.yaml
+python3 scripts/reformat_dataset.py
 ```
 
----
+### Step 4: Run RLVR Training
 
-### Option B: 8 x A100 GPU Cluster Deployment Setup (80GB VRAM GPUs)
-
-Use the dedicated 8 GPU cluster configuration file (`configs/cluster_8gpu.yaml`):
-
+#### Single GPU Test Setup (e.g. RTX A4500 20GB VRAM)
 ```bash
-python train.py --config configs/cluster_8gpu.yaml
+python3 train.py --config configs/single_gpu.yaml
+```
+
+#### 8 x A100 GPU Cluster Deployment Setup (80GB VRAM GPUs)
+```bash
+python3 train.py --config configs/cluster_8gpu.yaml
 ```
 
 ---

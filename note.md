@@ -17,7 +17,7 @@
  Default Runtime: runc
 
 ## run docker container
- docker run --gpus all -it --rm --shm-size=8g -v $(pwd)/checkpoints:/tmp/checkpoints/ nvcr.io/nvidia/nemo-automodel:26.04.00
+ docker run --gpus all -it --rm --shm-size=8g -v $(pwd)/0.peft:/tmp/0.peft/ nvcr.io/nvidia/nemo-automodel:26.04.00
 
 
 # huggingface login [optional]
