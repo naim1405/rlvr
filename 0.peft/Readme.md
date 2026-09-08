@@ -5,39 +5,47 @@
 - NVIDIA Container Toolkit
 
 # Setup ENV
+## dataset (required, on host)
+ cd 0.peft/dataset && unzip -o sft_data.zip
+
+> Extracts `train.jsonl` (35k rows). The recipe expects it at `dataset/train.jsonl`. The `.jsonl` is git-ignored; only the `.zip` is versioned.
+
 ## pull image
  docker pull nvcr.io/nvidia/nemo-automodel:26.04.00
 
-## install toolkit
+## toolkit (one-time)
  install nvidia-container-toolkit
-
-## configure toolkit
  sudo nvidia-ctk runtime configure --runtime=docker
-
-## restart docker
  sudo systemctl restart docker
-
-## verify docker runtime
  docker info | grep -i runtime
- Runtimes: io.containerd.runc.v2 nvidia runc
- Default Runtime: runc
 
-## run docker container
+## run container (from repo root)
  docker run --gpus all -it --rm --shm-size=8g -v $(pwd)/0.peft:/tmp/0.peft/ nvcr.io/nvidia/nemo-automodel:26.04.00
 
-> The above command will start the docker container and mount the local directory `0.peft` to `/tmp/0.peft` inside the container. `automodel` will need to be run from /tmp/0.peft inside the container.
+> Mounts host `0.peft` to `/tmp/0.peft`. Run everything below from `/tmp/0.peft` inside the container.
 
-
-# Run PEFT
- cd /tmp/checkpoints
- automodel recipe.yaml
-
-# huggingface login [optional]
+# HF login [optional]
  hf auth login
-token: __TOKEN__
  hf auth whoami
 
+# Run PEFT (inside container)
+ cd /tmp/0.peft
+ automodel recipe.yaml
 
-## [Parameter Tuning Guide](Tuning.md)
+## low-VRAM verify (e.g. 20 GB card)
+ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True automodel recipe.smoke.yaml
 
+# Test checkpoint (inside container)
+ python infer.py --num-samples 10 --show-expected
+ python infer.py --question "What is 12*13?"
 
+# Files
+- `recipe.yaml` — full training recipe
+- `recipe.smoke.yaml` — low-VRAM verification recipe
+- `mydataset.py` — chat-format SFT dataset, loss on assistant tokens only
+- `infer.py` — checkpoint tester: generation + format PASS/FAIL
+- `smoke_test_dataset.py` — dataloader check, no GPU needed
+- `fix_encoding.py` — UTF-8 repair for externally sourced JSONL (stock data is clean)
+- `dataset/sft_data.zip` — `train.jsonl`, 35k rows
+
+## [Parameter Tuning Guide](TUNING.md)
