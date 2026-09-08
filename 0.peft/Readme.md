@@ -20,17 +20,16 @@
  docker info | grep -i runtime
 
 ## run container (from repo root)
- docker run --gpus all -it --rm --shm-size=8g -v $(pwd)/0.peft:/tmp/0.peft/ nvcr.io/nvidia/nemo-automodel:26.04.00
+ docker run --gpus all -it --rm --shm-size=8g -v $(pwd)/rlvr/0.peft:/tmp/rlvr/0.peft/ nvcr.io/nvidia/nemo-automodel:26.04.00
 
-> Mounts host `0.peft` to `/tmp/0.peft`. Run everything below from `/tmp/0.peft` inside the container.
 
 # HF login [optional]
  hf auth login
  hf auth whoami
 
 # Run PEFT (inside container)
- cd /tmp/0.peft
- automodel recipe.yaml
+ cd /tmp/rlvr
+ automodel 0.peft/recipe.yaml
 
 ## low-VRAM verify (e.g. 20 GB card)
  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True automodel recipe.smoke.yaml

@@ -1,13 +1,13 @@
 # Qwen PEFT/LoRA SFT recipe for output format learning.
 #
 # Expected layout inside the Docker container:
-#   /tmp/0.peft/
+#   /tmp/rlvr/0.peft/
 #     recipe.yaml
 #     mydataset.py
 #     dataset/
 #       train.jsonl
 #
-# Run inside container from /tmp/0.peft:
+# Run inside container from /tmp/rlvr/:
 #   automodel recipe.yaml
 # or multi-GPU:
 #   automodel --nproc-per-node=<NUM_GPUS> recipe.yaml
@@ -40,7 +40,7 @@ model:
 
 checkpoint:
   enabled: true
-  checkpoint_dir: /tmp/0.peft/checkpoints
+  checkpoint_dir: /tmp/rlvr/0.peft/checkpoints
   model_save_format: safetensors
   # For PEFT this saves adapter weights under epoch_*/model/.
   # Consolidated full-model checkpoints are for full SFT, not LoRA adapters.
@@ -66,8 +66,8 @@ loss_fn:
   _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
 
 dataset:
-  _target_: /tmp/0.peft/mydataset.py:QwenPEFTDataset
-  path: /tmp/0.peft/dataset/train.jsonl
+  _target_: /tmp/rlvr/0.peft/mydataset.py:QwenPEFTDataset
+  path: /tmp/rlvr/0.peft/dataset/train.jsonl
   split: train
   validation_fraction: 0.02
   max_length: 2048
@@ -83,8 +83,8 @@ dataloader:
   group_by_length: true
 
 validation_dataset:
-  _target_: /tmp/0.peft/mydataset.py:QwenPEFTDataset
-  path: /tmp/0.peft/dataset/train.jsonl
+  _target_: /tmp/rlvr/0.peft/mydataset.py:QwenPEFTDataset
+  path: /tmp/rlvr/0.peft/dataset/train.jsonl
   split: validation
   validation_fraction: 0.02
   max_length: 2048
