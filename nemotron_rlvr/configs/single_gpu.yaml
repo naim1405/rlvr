@@ -40,7 +40,8 @@ checkpointing:
   save_period: 20
   model_save_format: "safetensors"
   save_consolidated: false
-  save_optimizer: true
+  # Optimizer shards ~5GB extra on the A4500; weights-only is enough here.
+  save_optimizer: false
 
 grpo:
   num_prompts_per_step: 2
@@ -115,7 +116,9 @@ policy:
 
   megatron_cfg:
     enabled: true
-    empty_unused_memory_level: 1
+    # 2 = empty_cache after train so reserved does not accumulate across steps
+    # (step 19 wake_up OOM: Megatron reserved 8.5GB + vLLM remap).
+    empty_unused_memory_level: 2
     activation_checkpointing: true
     converter_type: "Qwen2ForCausalLM"
     tensor_model_parallel_size: 1
@@ -183,7 +186,8 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       expert_parallel_size: 1
-      gpu_memory_utilization: 0.45
+      # 0.45 left too little headroom once Megatron reserved grew (~8.5GB).
+      gpu_memory_utilization: 0.32
       max_model_len: 2048
       enforce_eager: true
       precision: ${policy.precision}

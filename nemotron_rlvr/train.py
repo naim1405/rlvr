@@ -8,6 +8,9 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("HF_ALLOW_CODE_EVAL", "1")
+# Colocated 1×20GB: Megatron reserved + vLLM CuMem wake_up OOM'd at step 19
+# without this (caching allocator would not return sleep/wake holes).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 def _schema_defaults() -> dict:
@@ -129,7 +132,7 @@ def _schema_defaults() -> dict:
                 },
             },
             "megatron_cfg": {
-                "empty_unused_memory_level": 1,
+                "empty_unused_memory_level": 2,
                 "converter_type": "Qwen2ForCausalLM",
                 "expert_tensor_parallel_size": 1,
                 "num_layers_in_first_pipeline_stage": None,
