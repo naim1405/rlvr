@@ -84,5 +84,42 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(score_response(_answered("x"), extra), 0.0)
 
 
+def _have_z3() -> bool:
+    try:
+        import z3  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(_have_z3(), "z3-solver not installed")
+class P3SubprocessTests(unittest.TestCase):
+    """P3 runs in a child interpreter; it must import `verifiers` from the
+    repo layout (nemotron_rlvr/verifiers) as well as the installed Gym copy.
+    Before the PYTHONPATH fix the child raised ModuleNotFoundError, which was
+    swallowed and reported as reward 0.0 for every P3 sample."""
+
+    ENTAILMENT = {
+        "task_name": "p3_logic",
+        "expected_answer": "Yes",
+        "verifier_meta": {
+            "kind": "entailment",
+            "premises": [["implies", "p", "q"], "p"],
+            "query": "q",
+        },
+    }
+
+    def test_p3_correct_scores_one_via_subprocess(self):
+        extra = extra_env_info_from_mapping(self.ENTAILMENT)
+        # The 'Yes'->1.0 check is what catches the import failure: a broken
+        # child returns 0.0 here, identical to a wrong answer.
+        self.assertEqual(score_response(_answered("Yes"), extra), 1.0)
+
+    def test_p3_wrong_scores_zero_via_subprocess(self):
+        extra = extra_env_info_from_mapping(self.ENTAILMENT)
+        self.assertEqual(score_response(_answered("No"), extra), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -260,8 +260,20 @@ def _score_isolated(
     env = os.environ.copy()
     env[_CHILD_ENV] = "1"
     env["NEMOTRON_VERIFIER_DIR"] = server_dir
+    # The child must be able to import both `score` (server_dir) and the
+    # `verifiers` package. The latter lives next to score.py in the installed
+    # Gym copy, but two levels up (nemotron_rlvr/verifiers) in the source tree;
+    # without the extra roots the child raised ModuleNotFoundError, which was
+    # swallowed and reported as reward 0.0 for every P3 sample.
+    roots = [server_dir]
+    repo_root = str(Path(__file__).resolve().parents[2])
+    for candidate in (repo_root, os.environ.get("NEMOTRON_RLVR_ROOT", "")):
+        if candidate and os.path.isfile(os.path.join(candidate, "verifiers", "p3_logic.py")):
+            roots.append(candidate)
     pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = server_dir + (os.pathsep + pythonpath if pythonpath else "")
+    if pythonpath:
+        roots.append(pythonpath)
+    env["PYTHONPATH"] = os.pathsep.join(roots)
     try:
         payload = json.dumps(
             {
