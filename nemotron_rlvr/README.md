@@ -104,6 +104,24 @@ Do **not** add `requirements.txt` next to `pyproject.toml` — Gym rejects havin
 
 ### Step 5: Train
 
+Before every launch — especially after a run was interrupted with Ctrl-C or a
+dropped SSH session — run the pre-flight check. It finds leftover Ray / Gym /
+`uv` processes (the usual cause of a launch that hangs at
+`3 / 4 servers ready. Waiting for servers to spin up: ['nemotron_verifier']`),
+GPU memory still held, low disk, and a broken verifier venv:
+
+```bash
+bash scripts/preflight.sh          # report
+bash scripts/preflight.sh --kill   # also clean up leftovers
+```
+
+Launch long runs inside `tmux` so they survive a dropped SSH session. The
+first spin-up after the container (or `/opt/gym_venvs`) is recreated builds
+the verifier venv with `uv` and can sit at `3 / 4 servers ready` for up to
+~10 minutes; that is normal as long as `ps -ef | grep nemotron_verifier`
+shows a `uv` process. Gym raises `Process 'nemotron_verifier' finished
+unexpectedly!` if the server actually crashed.
+
 Single GPU (RTX A4500 20GB) — run **`configs/single_gpu.yaml`**. Do not use a Super leftover yaml pasted from chat (`async_grpo` + colocated 1 GPU, `async_engine: false`, p0–p6 class entrypoints).
 
 ```bash
