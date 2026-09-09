@@ -1,3 +1,4 @@
+# DEPRECATED: not a NeMo Gym config. Use resources_servers/nemotron_verifier/.
 resources_servers:
   p5_pattern:
     entrypoint: "verifiers.p5_pattern:PatternVerifier"

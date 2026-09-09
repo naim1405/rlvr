@@ -1,3 +1,5 @@
+# 1× GPU colocated sync-GRPO + NeMo Gym HTTP (RTX A4500 20GB).
+# async_grpo cannot run on a single colocated GPU — keep it off.
 run:
   data: data/train-split.jsonl
   model: checkpoints/qwen_merged_sft
@@ -23,7 +25,7 @@ checkpointing:
 grpo:
   num_prompts_per_step: 4
   num_generations_per_prompt: 4
-  num_val_generations_per_prompt: 2
+  num_val_generations_per_prompt: 1
   max_rollout_turns: 1
   max_num_epochs: 1
   max_num_steps: 1000
@@ -35,11 +37,16 @@ grpo:
   invalid_tool_call_advantage: -5.0
   penalize_malformed_thinking: true
   malformed_thinking_advantage: -5.0
+  val_period: 25
+  val_at_start: false
+  # train.py honors these caps (does not overwrite with len(val)).
+  max_val_samples: 8
+  val_batch_size: 4
 
   async_grpo:
-    enabled: true
+    enabled: false
     max_trajectory_age_steps: 1
-    in_flight_weight_updates: true
+    in_flight_weight_updates: false
     recompute_kv_cache_after_weight_updates: false
 
 loss_fn:
@@ -58,7 +65,7 @@ policy:
   train_micro_batch_size: 1
   generation_batch_size: 4
   logprob_batch_size: 1
-  max_total_sequence_length: 4096
+  max_total_sequence_length: 2048
   precision: "bfloat16"
 
   megatron_cfg:
@@ -78,16 +85,18 @@ policy:
 
   generation:
     backend: "vllm"
-    max_new_tokens: 4096
+    max_new_tokens: 2048
     temperature: 1.0
     top_p: 1.0
     colocated:
       enabled: true
     vllm_cfg:
+      async_engine: true
+      expose_http_server: true
       tensor_parallel_size: 1
-      gpu_memory_utilization: 0.4
-      max_model_len: 4096
-      enforce_eager: false
+      gpu_memory_utilization: 0.45
+      max_model_len: 2048
+      enforce_eager: true
 
 data:
   train:
@@ -100,11 +109,9 @@ env:
   nemo_gym:
     port_range_low: 15001
     port_range_high: 20000
+    skip_venv_if_present: true
+    # train.py rewrites these to absolute paths after copying the server
+    # into $GYM_ROOT/resources_servers/nemotron_verifier/.
     config_paths:
-      - configs/resources_servers/p0_retrieval.yaml
-      - configs/resources_servers/p1_arithmetic.yaml
-      - configs/resources_servers/p2_symbolic.yaml
-      - configs/resources_servers/p3_logic.yaml
-      - configs/resources_servers/p4_planning.yaml
-      - configs/resources_servers/p5_pattern.yaml
-      - configs/resources_servers/p6_constraint.yaml
+      - responses_api_models/vllm_model/configs/vllm_model_for_training.yaml
+      - resources_servers/nemotron_verifier/configs/nemotron_verifier.yaml

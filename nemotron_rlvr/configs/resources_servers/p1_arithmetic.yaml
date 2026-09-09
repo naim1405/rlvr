@@ -1,3 +1,4 @@
+# DEPRECATED: not a NeMo Gym config. Use resources_servers/nemotron_verifier/.
 resources_servers:
   p1_arithmetic:
     entrypoint: "verifiers.p1_arithmetic:ArithmeticVerifier"

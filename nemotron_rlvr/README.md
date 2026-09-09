@@ -1,6 +1,6 @@
 # Custom RLVR Pipeline (7-Problem Family Suite P0–P6)
 
-This repository contains a full **Reinforcement Learning with Verifiable Rewards (RLVR)** setup for training LLMs across 7 problem domains:
+Reinforcement Learning with Verifiable Rewards for Qwen across seven families:
 
 - **P0**: Factual Retrieval (`p0_retrieval`)
 - **P1**: Arithmetic (`p1_arithmetic`)
@@ -10,88 +10,138 @@ This repository contains a full **Reinforcement Learning with Verifiable Rewards
 - **P5**: Pattern / Inductive Reasoning (`p5_pattern`)
 - **P6**: Constraint Satisfaction (`p6_constraint`)
 
+Rewards come from a **NeMo Gym resources server** (`nemotron_verifier`) that
+routes each example to the matching Python class in `verifiers/`.
+
 ---
 
 ## Workspace Structure
 
 ```text
 rlvr/
-├── 0.peft/                          # PEFT SFT module (Format learning)
-│   ├── recipe.yaml                  # NeMo AutoModel PEFT SFT recipe
-│   ├── mydataset.py                 # QwenPEFTDataset loader
-│   ├── smoke_test_dataset.py        # Dataset verification script
-│   └── dataset/                     # PEFT SFT dataset (train.jsonl)
-└── nemotron_rlvr/                   # Custom RLVR pipeline module
-    ├── dataset/                     # Multi-family RLVR corpus (p0/ .. p6/)
+├── 0.peft/                          # PEFT SFT (XML <think>/<answer> format)
+└── nemotron_rlvr/                   # GRPO + Gym
+    ├── dataset/                     # Corpus metadata (per-family JSONL is local-only)
     ├── configs/
-    │   ├── default.yaml             # Master RLVR & NeMo Gym config
-    │   ├── single_gpu.yaml          # Single GPU test config
-    │   ├── cluster_8gpu.yaml        # 8 x A100 GPU cluster deployment config
-    │   └── resources_servers/       # 7 NeMo Gym environment configs (p0.yaml .. p6.yaml)
-    ├── verifiers/                   # Python verifiers for P0-P6
-    │   ├── p0_retrieval.py
-    │   ├── p1_arithmetic.py
-    │   ├── p2_symbolic.py
-    │   ├── p3_logic.py
-    │   ├── p4_planning.py
-    │   ├── p5_pattern.py
-    │   └── p6_constraint.py
+    │   ├── default.yaml
+    │   ├── single_gpu.yaml          # 1×20GB colocated sync-GRPO
+    │   ├── cluster_8gpu.yaml
+    │   ├── models/policy_model.yaml # Gym vLLM training yaml (fallback)
+    │   └── resources_servers/       # DEPRECATED class-entrypoint stubs
+    ├── resources_servers/nemotron_verifier/
+    │   ├── app.py                   # Gym FastAPI wrapper
+    │   ├── score.py                 # P0–P6 routing (Gym-free)
+    │   ├── pyproject.toml           # ONLY this file — no requirements.txt
+    │   └── configs/nemotron_verifier.yaml
+    ├── verifiers/                   # p0 … p6 .verify(response, extra_env_info)
     ├── scripts/
-    │   ├── reformat_dataset.py      # Formats dataset/ to JSONL splits (train-split.jsonl)
-    │   └── merge_peft.py            # Merges 0.peft adapter into base Qwen model
-    ├── data/                        # Generated train/val JSONL splits
-    ├── train_utils.py               # Dataset loading helper functions
-    ├── train.py                     # Main RLVR Async-GRPO training script
-    └── README.md
+    │   ├── reformat_dataset.py      # corpus → Gym JSONL
+    │   ├── install_gym_server.py    # copy server into $GYM_ROOT
+    │   └── merge_peft.py
+    ├── data/                        # train-split.jsonl / val-split.jsonl
+    ├── train_utils.py
+    └── train.py
 ```
 
 ---
 
 ## Execution Workflow
 
-### Step 1: Train PEFT Format Model (in `0.peft`)
+### Step 1: Train PEFT format model (in `0.peft`)
+
 ```bash
-# Inside container from /tmp/0.peft:
 automodel recipe.yaml
 ```
 
-### Step 2: Merge PEFT Adapter into Base Model
+### Step 2: Merge the PEFT adapter
+
 ```bash
-cd /home/ezio/Projects/rlhf/rlvr/nemotron_rlvr
+cd nemotron_rlvr
 python3 scripts/merge_peft.py \
     --base Qwen/Qwen3-0.6B \
     --adapter /path/to/0.peft/checkpoints/epoch_2/model \
-    --output /path/to/qwen_merged_sft
+    --output checkpoints/qwen_merged_sft
 ```
 
-### Step 3: Reformat RLVR Dataset
+### Step 3: Reformat the RLVR corpus to Gym JSONL
+
+Datasets are **not** in git. Point `--corpus` at the local P0–P6 tree
+(`p0/train.jsonl` … `p6/test_id.jsonl`):
+
 ```bash
-python3 scripts/reformat_dataset.py
+python3 scripts/reformat_dataset.py --corpus /path/to/dataset --out-dir data
 ```
 
-### Step 4: Run RLVR Training
+Each line looks like:
 
-#### Single GPU Test Setup (e.g. RTX A4500 20GB VRAM)
+```json
+{
+  "responses_create_params": {"input": [{"role": "user", "content": "..."}]},
+  "expected_answer": "...",
+  "task_name": "p0_retrieval",
+  "family": "P0",
+  "verifier_meta": {},
+  "agent_ref": {"type": "responses_api_agents", "name": "nemotron_verifier_simple_agent"}
+}
+```
+
+### Step 4: Install the Gym server (also done automatically by `train.py`)
+
+Gym's `setup_env_command` opens
+
+```
+$GYM_ROOT/resources_servers/nemotron_verifier/pyproject.toml
+```
+
+A copy that only lives in this repo is not enough. On the Super3 container:
+
+```bash
+export NEMO_GYM_ROOT=/opt/nemo-rl/3rdparty/Gym-workspace/Gym
+python3 scripts/install_gym_server.py
+```
+
+Do **not** add `requirements.txt` next to `pyproject.toml` — Gym rejects having both.
+
+### Step 5: Train
+
+Single GPU (RTX A4500 20GB):
+
 ```bash
 python3 train.py --config configs/single_gpu.yaml
 ```
 
-#### 8 x A100 GPU Cluster Deployment Setup (80GB VRAM GPUs)
+8×A100:
+
 ```bash
 python3 train.py --config configs/cluster_8gpu.yaml
 ```
 
+`train.py` copies the server into Gym, rewrites `config_paths` to absolute
+paths, then spins Gym up. If `setup()` already returns a Gym actor (Super3 /
+current NeMo RL), that actor is reused; on v0.5.0 a `NemoGym.remote` is created
+after the 10-tuple `setup()`.
+
 ---
 
-## Hardware Configuration Matrix
+## Hardware notes
 
-| Parameter | Single GPU Test (20GB VRAM) | 8 GPU Cluster (80GB VRAM Each) |
+| Parameter | Single GPU (20GB) | 8 GPU cluster |
 | :--- | :--- | :--- |
-| **`cluster.gpus_per_node`** | `1` | `8` |
-| **`tensor_model_parallel_size`** | `1` | `2` (or `4`) |
-| **`context_parallel_size`** | `1` | `2` |
-| **`colocated.enabled`** | `true` | `true` |
-| **`gpu_memory_utilization`** | `0.4` | `0.7` |
-| **`max_total_sequence_length`** | `4,096` tokens | `32,768` tokens |
-| **`num_prompts_per_step`** | `4` | `32` |
-| **`num_generations_per_prompt`**| `4` | `8` |
+| `cluster.gpus_per_node` | `1` | `8` |
+| `async_grpo.enabled` | **`false`** (colocated 1 GPU) | yaml default |
+| `vllm_cfg.async_engine` | `true` (Gym HTTP) | `true` |
+| `vllm_cfg.expose_http_server` | `true` | `true` |
+| `gpu_memory_utilization` | `0.45` | `0.7` |
+| `max_total_sequence_length` | `2048` | `32768` |
+| `max_val_samples` / `val_batch_size` | `8` / `4` | not capped |
+
+`train.py` does **not** overwrite `val_batch_size` with `len(val)` when the yaml
+already sets `max_val_samples`.
+
+---
+
+## Local verifier tests (no Gym)
+
+```bash
+python3 resources_servers/nemotron_verifier/tests/test_score.py
+```

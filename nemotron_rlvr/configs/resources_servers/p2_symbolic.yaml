@@ -1,3 +1,4 @@
+# DEPRECATED: not a NeMo Gym config. Use resources_servers/nemotron_verifier/.
 resources_servers:
   p2_symbolic:
     entrypoint: "verifiers.p2_symbolic:SymbolicVerifier"

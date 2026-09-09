@@ -1,3 +1,6 @@
+# DEPRECATED: not a NeMo Gym config. Gym loads
+# resources_servers/nemotron_verifier/configs/nemotron_verifier.yaml
+# after scripts/install_gym_server.py copies that server into $GYM_ROOT.
 resources_servers:
   p0_retrieval:
     entrypoint: "verifiers.p0_retrieval:RetrievalVerifier"

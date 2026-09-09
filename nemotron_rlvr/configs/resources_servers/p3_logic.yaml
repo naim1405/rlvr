@@ -1,3 +1,4 @@
+# DEPRECATED: not a NeMo Gym config. Use resources_servers/nemotron_verifier/.
 resources_servers:
   p3_logic:
     entrypoint: "verifiers.p3_logic:LogicVerifier"
