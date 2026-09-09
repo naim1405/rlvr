@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from itertools import chain, repeat
+from pathlib import Path
 
 import torch
 
@@ -31,6 +33,28 @@ def _user_text_from_example(example: dict) -> str:
                 if parts:
                     return "".join(parts)
     return ""
+
+
+def _looks_like_gym_example(example: dict) -> bool:
+    rcp = example.get("responses_create_params")
+    agent = example.get("agent_ref")
+    return (
+        isinstance(rcp, dict)
+        and isinstance(rcp.get("input"), list)
+        and isinstance(agent, dict)
+        and agent.get("name")
+    )
+
+
+def _to_gym_example(example: dict, idx: int) -> dict:
+    if _looks_like_gym_example(example):
+        return example
+    scripts_dir = Path(__file__).resolve().parent / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from reformat_dataset import to_gym_record
+
+    return to_gym_record(example, line_no=idx)
 
 
 def load_nemo_gym_dataset(jsonl_path: str, tokenizer, num_repeats: int | None = None):
@@ -64,7 +88,15 @@ def load_nemo_gym_dataset(jsonl_path: str, tokenizer, num_repeats: int | None = 
     with open(jsonl_path, "r", encoding="utf-8") as handle:
         examples = [json.loads(line) for line in handle if line.strip()]
 
+    converted = [_to_gym_example(ex, idx) for idx, ex in enumerate(examples)]
+    n_converted = sum(1 for old, new in zip(examples, converted) if old is not new)
+    examples = converted
     print(f"Loaded dataset from {jsonl_path}: {len(examples)} records")
+    if n_converted:
+        print(
+            f"[train_utils] converted {n_converted}/{len(examples)} records to Gym schema "
+            "(responses_create_params + agent_ref). On-disk JSONL is unchanged."
+        )
 
     if num_repeats:
         examples = list(chain.from_iterable(repeat(ex, num_repeats) for ex in examples))

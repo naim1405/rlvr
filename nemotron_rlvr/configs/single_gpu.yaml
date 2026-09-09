@@ -64,6 +64,13 @@ grpo:
   # train.py honors these caps (does not overwrite with len(val)).
   max_val_samples: 8
   val_batch_size: 4
+  use_dynamic_sampling: false
+  batch_multiplier: 1
+  overlong_filtering: false
+  reward_shaping:
+    enabled: false
+  reward_scaling:
+    enabled: false
   async_grpo:
     enabled: false
 

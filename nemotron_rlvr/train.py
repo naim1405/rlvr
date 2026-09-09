@@ -10,6 +10,119 @@ from pathlib import Path
 os.environ.setdefault("HF_ALLOW_CODE_EVAL", "1")
 
 
+def _schema_defaults() -> dict:
+    """Super3 `setup()` indexes these with `cfg[key]`; missing → ConfigKeyError.
+
+    Yaml values win (OmegaConf.merge defaults, yaml). Safe/off for 1×20GB.
+    """
+    return {
+        "grpo": {
+            "seed": 42,
+            "use_dynamic_sampling": False,
+            "batch_multiplier": 1,
+            "dynamic_sampling_max_gen_batches": 10,
+            "overlong_filtering": False,
+            "val_at_end": False,
+            "val_start_at": -1,
+            "num_val_generations_per_prompt": 1,
+            "val_num_generations_per_prompt": 1,
+            "seq_logprob_error_threshold": None,
+            "stop_at_validation_metric": None,
+            "stop_at_validation_threshold": None,
+            "reward_shaping": {
+                "enabled": False,
+                "overlong_buffer_length": 128,
+                "overlong_buffer_penalty": 1,
+                "max_response_length": "${policy.max_total_sequence_length}",
+                "stop_properly_penalty_coef": None,
+            },
+            "reward_scaling": {
+                "enabled": False,
+                "source_min": 0.0,
+                "source_max": 1.0,
+                "target_min": 0.0,
+                "target_max": 1.0,
+            },
+            "adv_estimator": {
+                "name": "grpo",
+                "minus_baseline": True,
+                "normalize_rewards": "${grpo.normalize_rewards}",
+                "use_leave_one_out_baseline": "${grpo.use_leave_one_out_baseline}",
+            },
+            "async_grpo": {
+                "enabled": False,
+                "max_trajectory_age_steps": 1,
+                "in_flight_weight_updates": False,
+                "recompute_kv_cache_after_weight_updates": False,
+                "max_generation_failures": 0,
+            },
+        },
+        "loss_fn": {
+            "reference_policy_kl_type": "k3",
+            "kl_input_clamp_value": 20.0,
+            "kl_output_clamp_value": 10.0,
+            "ratio_clip_c": None,
+            "use_on_policy_kl_approximation": False,
+            "sequence_level_importance_ratios": False,
+            "force_on_policy_ratio": False,
+            "disable_ppo_ratio": False,
+            "use_kl_in_reward": False,
+            "truncated_importance_sampling_type": "tis",
+            "truncated_importance_sampling_ratio_min": None,
+            "positive_example_nll_weight": 0.0,
+        },
+        "data": {
+            "shuffle": True,
+            "num_workers": 1,
+            "default": {
+                "dataset_name": "NemoGymDataset",
+                "env_name": "nemo_gym",
+                "processor": "nemo_gym_data_processor",
+            },
+        },
+        "logger": {
+            "tensorboard": {},
+            "swanlab": {"project": "rlvr", "name": "rlvr-single-gpu"},
+            "mlflow": {
+                "experiment_name": "rlvr",
+                "run_name": "rlvr-single-gpu",
+                "tracking_uri": "http://localhost:5000",
+            },
+            "gpu_monitoring": {
+                "collection_interval": 10,
+                "flush_interval": 10,
+            },
+        },
+        "checkpointing": {
+            "save_consolidated": False,
+            "save_optimizer": True,
+            "load_replay_buffer": False,
+            "save_data_plane": False,
+            "checkpoint_must_save_by": None,
+        },
+        "policy": {
+            "generation": {
+                "top_k": None,
+                "stop_token_ids": None,
+                "stop_strings": None,
+                "vllm_kwargs": {},
+                "colocated": {
+                    "enabled": True,
+                    "resources": {"gpus_per_node": None, "num_nodes": None},
+                },
+            }
+        },
+    }
+
+
+def _apply_schema_defaults(config):
+    from omegaconf import OmegaConf
+
+    merged = OmegaConf.merge(OmegaConf.create(_schema_defaults()), config)
+    print("[train] merged Super3 schema defaults (yaml still wins)")
+    return merged
+
+
 def _maybe_register_omegaconf_resolvers() -> None:
     from omegaconf import OmegaConf
 
@@ -247,6 +360,7 @@ def main():
     from train_utils import prepare_nemo_gym_dataset
 
     config = OmegaConf.load(str(config_path))
+    config = _apply_schema_defaults(config)
     OmegaConf.resolve(config)
 
     tokenizer = get_tokenizer(config.policy.tokenizer)
