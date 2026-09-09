@@ -1,5 +1,17 @@
-# 1× GPU colocated sync-GRPO + NeMo Gym HTTP (RTX A4500 20GB).
-# async_grpo cannot run on a single colocated GPU — keep it off.
+# =============================================================================
+# RUN THIS FILE on 1× RTX A4500 20GB:
+#   python3 train.py --config configs/single_gpu.yaml
+#
+# Do not use a Super leftover yaml pasted from chat. That mix was invalid:
+# async_grpo + colocated 1 GPU, async_engine: false (Gym needs HTTP),
+# 4096 seq, overlap_param_gather, val_batch_size=len(val), and p0–p6 class
+# entrypoints that Gym cannot load.
+#
+# Layout: colocated sync-GRPO (one GPU for train + vLLM). Gym still needs
+# vLLM async_engine + expose_http_server. train.py copies nemotron_verifier
+# into $GYM_ROOT and rewrites config_paths to absolute paths.
+# =============================================================================
+
 run:
   data: data/train-split.jsonl
   model: checkpoints/qwen_merged_sft
@@ -12,23 +24,27 @@ run:
 cluster:
   num_nodes: 1
   gpus_per_node: 1
+  master_port_range_low: 1400
+  master_port_range_high: 1999
 
 checkpointing:
   enabled: true
   checkpoint_dir: "checkpoints/rlvr_results_single_gpu"
   metric_name: "val:total_reward/mean"
   higher_is_better: true
-  keep_top_k: 5
-  save_period: 10
+  keep_top_k: 3
+  save_period: 20
   model_save_format: "safetensors"
+  save_consolidated: false
+  save_optimizer: true
 
 grpo:
-  num_prompts_per_step: 4
+  num_prompts_per_step: 2
   num_generations_per_prompt: 4
   num_val_generations_per_prompt: 1
   max_rollout_turns: 1
   max_num_epochs: 1
-  max_num_steps: 1000
+  max_num_steps: 50
   normalize_rewards: true
   use_leave_one_out_baseline: true
   advantage_clip_low: -50
@@ -39,15 +55,13 @@ grpo:
   malformed_thinking_advantage: -5.0
   val_period: 25
   val_at_start: false
+  val_at_end: false
+  seed: 42
   # train.py honors these caps (does not overwrite with len(val)).
   max_val_samples: 8
   val_batch_size: 4
-
   async_grpo:
     enabled: false
-    max_trajectory_age_steps: 1
-    in_flight_weight_updates: false
-    recompute_kv_cache_after_weight_updates: false
 
 loss_fn:
   reference_policy_kl_penalty: 0.0
@@ -61,31 +75,78 @@ policy:
   model_name: "checkpoints/qwen_merged_sft"
   tokenizer:
     name: ${policy.model_name}
-  train_global_batch_size: 16
+  train_global_batch_size: 8
   train_micro_batch_size: 1
-  generation_batch_size: 4
+  generation_batch_size: 2
   logprob_batch_size: 1
   max_total_sequence_length: 2048
   precision: "bfloat16"
+  max_grad_norm: 1.0
+  make_sequence_length_divisible_by: 1
+  optimizer: null
+  scheduler: null
+
+  dtensor_cfg:
+    enabled: false
+
+  dynamic_batching:
+    enabled: false
+
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: 2048
+    logprob_mb_tokens: 2048
+    algorithm: "modified_first_fit_decreasing"
+    microbatch_order: "packer"
+    sequence_length_round: 64
 
   megatron_cfg:
     enabled: true
+    empty_unused_memory_level: 1
     activation_checkpointing: true
+    converter_type: "Qwen2ForCausalLM"
     tensor_model_parallel_size: 1
     expert_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     context_parallel_size: 1
+    pipeline_dtype: ${policy.precision}
     sequence_parallel: false
+    apply_rope_fusion: true
+    cuda_graph_impl: "none"
+    recompute_granularity: "full"
+    checkpoint:
+      async_save: false
+    peft:
+      enabled: false
     optimizer:
       optimizer: "adam"
       lr: 3.0e-6
+      min_lr: 3.0e-7
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"
       adam_beta1: 0.9
       adam_beta2: 0.999
+      adam_eps: 1.0e-8
       use_distributed_optimizer: false
+      use_precision_aware_optimizer: false
+      clip_grad: ${policy.max_grad_norm}
+      optimizer_cpu_offload: false
+    scheduler:
+      lr_decay_style: "constant"
+      lr_decay_iters: 50
+      lr_warmup_iters: 3
+      lr_warmup_init: 3.0e-7
+    distributed_data_parallel_config:
+      grad_reduce_in_fp32: false
+      overlap_grad_reduce: false
+      overlap_param_gather: false
+      use_custom_fsdp: false
 
   generation:
     backend: "vllm"
-    max_new_tokens: 2048
+    max_new_tokens: 1536
     temperature: 1.0
     top_p: 1.0
     colocated:
@@ -99,6 +160,8 @@ policy:
       enforce_eager: true
 
 data:
+  shuffle: true
+  num_workers: 1
   train:
     data_path: "data/train-split.jsonl"
   validation:
@@ -115,3 +178,15 @@ env:
     config_paths:
       - responses_api_models/vllm_model/configs/vllm_model_for_training.yaml
       - resources_servers/nemotron_verifier/configs/nemotron_verifier.yaml
+
+logger:
+  log_dir: "logs"
+  num_val_samples_to_print: 2
+  wandb_enabled: false
+  tensorboard_enabled: false
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: false
+  wandb:
+    project: "rlvr"
+    name: "rlvr-single-gpu"

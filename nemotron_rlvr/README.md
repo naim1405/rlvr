@@ -104,7 +104,7 @@ Do **not** add `requirements.txt` next to `pyproject.toml` — Gym rejects havin
 
 ### Step 5: Train
 
-Single GPU (RTX A4500 20GB):
+Single GPU (RTX A4500 20GB) — run **`configs/single_gpu.yaml`**. Do not use a Super leftover yaml pasted from chat (`async_grpo` + colocated 1 GPU, `async_engine: false`, p0–p6 class entrypoints).
 
 ```bash
 python3 train.py --config configs/single_gpu.yaml
@@ -132,7 +132,8 @@ after the 10-tuple `setup()`.
 | `vllm_cfg.async_engine` | `true` (Gym HTTP) | `true` |
 | `vllm_cfg.expose_http_server` | `true` | `true` |
 | `gpu_memory_utilization` | `0.45` | `0.7` |
-| `max_total_sequence_length` | `2048` | `32768` |
+| `num_prompts_per_step` × gens | `2 × 4` (gbs 8) | `32 × 8` |
+| `max_total_sequence_length` | `2048` (`max_new_tokens` 1536) | `32768` |
 | `max_val_samples` / `val_batch_size` | `8` / `4` | not capped |
 
 `train.py` does **not** overwrite `val_batch_size` with `len(val)` when the yaml
