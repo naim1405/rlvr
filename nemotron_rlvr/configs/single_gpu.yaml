@@ -94,6 +94,8 @@ policy:
   precision: "bfloat16"
   max_grad_norm: 1.0
   make_sequence_length_divisible_by: 1
+  offload_optimizer_for_logprob: false
+  logprob_chunk_size: null
   optimizer: null
   scheduler: null
 
