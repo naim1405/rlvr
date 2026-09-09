@@ -127,13 +127,15 @@ class NemotronVerifierResourcesServer(SimpleResourcesServer):
         reward = await asyncio.to_thread(
             score_response, assistant_text, extra, reward_params
         )
-        payload = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+        # Do not **body.model_dump() here: the request already has task_name
+        # and BaseVerifyResponse would get it twice.
         return NemotronVerifyResponse(
-            **payload,
+            responses_create_params=body.responses_create_params,
+            response=body.response,
             reward=float(reward),
-            task_name=extra.get("task_name", "") or "",
-            family=extra.get("family", "") or "",
-            instance_id=extra.get("instance_id", "") or "",
+            task_name=str(extra.get("task_name") or ""),
+            family=str(extra.get("family") or ""),
+            instance_id=str(extra.get("instance_id") or ""),
             extracted_assistant_text=assistant_text,
         )
 
