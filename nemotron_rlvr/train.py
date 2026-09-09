@@ -530,6 +530,14 @@ def main():
     val_dataset = prepare_nemo_gym_dataset(config, tokenizer, val_path)
     _configure_val_sizes(config, val_dataset)
 
+    # NeMo RL expects a plain dict (MasterConfig TypedDict), which is what the
+    # official runner passes (OmegaConf.to_container -> MasterConfig(**cfg)).
+    # setup() keeps this object as master_config and the checkpointer runs
+    # yaml.safe_dump(master_config) at every save_period; PyYAML's SafeDumper
+    # cannot represent an OmegaConf DictConfig -> RepresenterError and an empty
+    # config.yaml in tmp_step_N. Convert after all open_dict() mutations above.
+    config = OmegaConf.to_container(config, resolve=True)
+
     packed = _unpack_setup(setup(config, tokenizer, train_dataset, val_dataset))
     policy = packed["policy"]
     policy_generation = packed["policy_generation"]
@@ -555,11 +563,33 @@ def main():
             ray.get(nemo_gym.health_check.remote())
         task_to_env = {"nemo_gym": nemo_gym}
 
-    _call_grpo_train(grpo_train, packed, tokenizer, task_to_env)
+    try:
+        _call_grpo_train(grpo_train, packed, tokenizer, task_to_env)
+    finally:
+        # Teardown order matters. Actors must be shut down gracefully *before*
+        # their placement groups are removed; otherwise Ray kills the workers
+        # (INTENDED_SYSTEM_EXIT "placement group was removed"), and the later
+        # Policy.__del__ / VllmGeneration.__del__ safety nets hit ActorDiedError
+        # while trying to run the cleanup RPC on already-dead actors.
+        _shutdown_actor("nemo_gym", nemo_gym)
+        _shutdown_actor("policy_generation", policy_generation)
+        _shutdown_actor("policy", policy)
+        _shutdown_cluster(cluster)
 
-    if hasattr(policy, "shutdown_collective_rpc"):
-        policy.shutdown_collective_rpc()
-    _shutdown_cluster(cluster)
+
+def _shutdown_actor(name: str, obj) -> None:
+    if obj is None:
+        return
+    try:
+        # Ray actor handle (NemoGym) vs. driver-side wrapper (Policy, VllmGeneration).
+        if hasattr(obj, "shutdown") and hasattr(getattr(obj, "shutdown"), "remote"):
+            import ray
+
+            ray.get(obj.shutdown.remote(), timeout=60)
+        elif callable(getattr(obj, "shutdown", None)):
+            obj.shutdown()
+    except Exception as exc:
+        print(f"[train] {name} shutdown: {exc}")
 
 
 if __name__ == "__main__":
