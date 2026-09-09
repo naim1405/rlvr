@@ -153,15 +153,25 @@ policy:
     max_new_tokens: 1536
     temperature: 1.0
     top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
     colocated:
       enabled: true
+      resources:
+        gpus_per_node: null
+        num_nodes: null
     vllm_cfg:
       async_engine: true
       expose_http_server: true
       tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
       gpu_memory_utilization: 0.45
       max_model_len: 2048
       enforce_eager: true
+      precision: ${policy.precision}
+      kv_cache_dtype: "auto"
 
 data:
   shuffle: true

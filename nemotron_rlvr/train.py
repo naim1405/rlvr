@@ -145,8 +145,41 @@ def _unpack_setup(result):
     )
 
 
+def _ensure_generation_defaults(generation_cfg):
+    """OmegaConf raises on missing keys; v0.5 configure_generation_config indexes them."""
+    from omegaconf import open_dict
+
+    with open_dict(generation_cfg):
+        if "top_k" not in generation_cfg:
+            generation_cfg.top_k = None
+        if "stop_token_ids" not in generation_cfg:
+            generation_cfg.stop_token_ids = None
+        if "stop_strings" not in generation_cfg:
+            generation_cfg.stop_strings = None
+        if "vllm_kwargs" not in generation_cfg:
+            generation_cfg.vllm_kwargs = {}
+        if "colocated" not in generation_cfg:
+            generation_cfg.colocated = {}
+        if "enabled" not in generation_cfg.colocated:
+            generation_cfg.colocated.enabled = True
+        if "resources" not in generation_cfg.colocated:
+            generation_cfg.colocated.resources = {
+                "gpus_per_node": None,
+                "num_nodes": None,
+            }
+        if "vllm_cfg" not in generation_cfg:
+            generation_cfg.vllm_cfg = {}
+        vllm_cfg = generation_cfg.vllm_cfg
+        if "pipeline_parallel_size" not in vllm_cfg:
+            vllm_cfg.pipeline_parallel_size = 1
+        if "expert_parallel_size" not in vllm_cfg:
+            vllm_cfg.expert_parallel_size = 1
+    return generation_cfg
+
+
 def _configure_generation(generation_cfg, tokenizer):
     """v0.5.0 / Super3: configure_generation_config. Newer trees may ship a parser."""
+    generation_cfg = _ensure_generation_defaults(generation_cfg)
     try:
         from nemo_rl.models.generation.vllm_config_parse import parse_vllm_tokenizer_mode
     except ImportError:
