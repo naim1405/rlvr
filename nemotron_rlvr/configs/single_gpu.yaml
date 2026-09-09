@@ -127,6 +127,13 @@ policy:
     apply_rope_fusion: true
     cuda_graph_impl: "none"
     recompute_granularity: "full"
+    # Super3 Nemotron configs default MTP on. Qwen has none. Must be null, not 0:
+    # gpt_model._postprocess treats 0 as enabled and process_mtp_loss() clones
+    # labels during get_logprobs (labels are None) → AttributeError.
+    mtp_num_layers: null
+    mtp_loss_scaling_factor: 0.0
+    mtp_use_repeated_layer: false
+    mtp_detach_heads: false
     checkpoint:
       async_save: false
     peft:

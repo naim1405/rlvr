@@ -150,7 +150,10 @@ def _schema_defaults() -> dict:
                 "moe_shared_expert_overlap": False,
                 "gradient_accumulation_fusion": False,
                 "force_reconvert_from_hf": False,
-                "mtp_num_layers": 0,
+                # Super3 gpt_model._postprocess calls process_mtp_loss when this
+                # is not None (0 still counts). Logprob forwards pass labels=None
+                # and crash. Qwen has no MTP — leave unset.
+                "mtp_num_layers": None,
                 "mtp_loss_scaling_factor": 0.0,
                 "mtp_use_repeated_layer": False,
                 "mtp_detach_heads": False,
