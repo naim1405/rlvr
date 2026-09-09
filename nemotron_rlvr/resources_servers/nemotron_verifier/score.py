@@ -7,10 +7,28 @@ routing without a Gym checkout.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 _LOG = logging.getLogger("nemotron_verifier")
+
+# Z3 (P3) can SIGSEGV. A thread timeout cannot contain that — it kills Gym
+# and training hangs on "Collecting rollouts". Score P3 in a child process.
+_ISOLATED_TASKS = frozenset({"p3_logic"})
+_CHILD_ENV = "NEMOTRON_VERIFIER_CHILD"
+
+_CHILD_BOOTSTRAP = (
+    "import json,os,sys;"
+    "from score import score_response_impl as _impl;"
+    "p=json.load(sys.stdin);"
+    "r=_impl(p['text'], p['extra'], p.get('params') or {});"
+    "json.dump(float(r), sys.stdout)"
+)
 
 
 TASK_ALIASES: dict[str, str] = {
@@ -190,12 +208,12 @@ def extract_assistant_text(response: Any) -> str:
     return "".join(chunks)
 
 
-def score_response(
+def score_response_impl(
     model_response: str,
     extra_env_info: dict[str, Any],
     reward_params: Optional[dict[str, dict]] = None,
 ) -> float:
-    """Run the matching P0–P6 verifier. Returns 0.0/1.0 (never raises)."""
+    """In-process P0–P6 scoring. Native crashes here can kill the interpreter."""
     try:
         task = canonicalize_task_name(
             extra_env_info.get("task_name"),
@@ -221,3 +239,82 @@ def score_response(
             extra_env_info.get("family"),
         )
         return 0.0
+
+
+def _p3_timeout_s(extra_env_info: dict[str, Any]) -> float:
+    meta = extra_env_info.get("verifier_meta") or {}
+    try:
+        timeout_s = float(meta.get("timeout_s", 3.0))
+    except (TypeError, ValueError):
+        timeout_s = 3.0
+    # Child import + Z3; cap so a wedged solver cannot stall the step.
+    return min(max(timeout_s, 1.0), 8.0) + 2.0
+
+
+def _score_isolated(
+    model_response: str,
+    extra_env_info: dict[str, Any],
+    reward_params: Optional[dict[str, dict]],
+) -> float:
+    server_dir = str(Path(__file__).resolve().parent)
+    env = os.environ.copy()
+    env[_CHILD_ENV] = "1"
+    env["NEMOTRON_VERIFIER_DIR"] = server_dir
+    pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = server_dir + (os.pathsep + pythonpath if pythonpath else "")
+    try:
+        payload = json.dumps(
+            {
+                "text": model_response,
+                "extra": extra_env_info,
+                "params": reward_params or {},
+            },
+            default=str,
+        )
+    except (TypeError, ValueError):
+        return 0.0
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _CHILD_BOOTSTRAP],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=_p3_timeout_s(extra_env_info),
+            env=env,
+            cwd=server_dir,
+        )
+    except subprocess.TimeoutExpired:
+        _LOG.warning("isolated P3 verifier timed out")
+        return 0.0
+    except Exception:
+        _LOG.exception("isolated P3 verifier failed to start")
+        return 0.0
+    if proc.returncode != 0:
+        err = (proc.stderr or "")[-400:]
+        _LOG.warning("isolated P3 verifier died rc=%s stderr=%s", proc.returncode, err)
+        return 0.0
+    try:
+        return float(json.loads(proc.stdout or "0"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return 0.0
+
+
+def score_response(
+    model_response: str,
+    extra_env_info: dict[str, Any],
+    reward_params: Optional[dict[str, dict]] = None,
+) -> float:
+    """Run the matching P0–P6 verifier. Returns 0.0/1.0 (never raises)."""
+    if os.environ.get(_CHILD_ENV) == "1":
+        return score_response_impl(model_response, extra_env_info, reward_params)
+    try:
+        task = canonicalize_task_name(
+            extra_env_info.get("task_name"),
+            extra_env_info.get("family"),
+            extra_env_info.get("verifier"),
+        )
+    except Exception:
+        return 0.0
+    if task in _ISOLATED_TASKS:
+        return _score_isolated(model_response, extra_env_info, reward_params)
+    return score_response_impl(model_response, extra_env_info, reward_params)

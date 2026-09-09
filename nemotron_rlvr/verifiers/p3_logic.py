@@ -10,6 +10,11 @@ import z3
 
 from verifiers._util import TimeoutExceeded, extract_answer, run_with_timeout
 
+# Hard caps so a bad verifier_meta cannot explode Z3 (SIGSEGV kills Gym).
+_MAX_UNIVERSE = 12
+_MAX_BOUND = 3
+_MAX_PRODUCT = 2048
+
 _YES = {"yes", "y", "true", "t", "entailed", "entails", "valid", "1", "satisfiable", "sat"}
 _NO = {"no", "n", "false", "f", "not entailed", "invalid", "0", "unsatisfiable", "unsat"}
 
@@ -46,7 +51,14 @@ def _build(
     if op in ("forall", "exists"):
         if universe is None:
             raise ValueError(f"{op!r} requires a finite 'universe' in verifier_meta")
+        if len(universe) > _MAX_UNIVERSE:
+            raise ValueError("universe too large for in-process Z3")
         bound = list(formula[1])
+        if len(bound) > _MAX_BOUND:
+            raise ValueError("too many bound variables for Z3")
+        n = len(universe) ** max(len(bound), 1)
+        if n > _MAX_PRODUCT:
+            raise ValueError("quantifier expansion too large for Z3")
         body = formula[2]
         clauses = []
         for combo in itertools.product(universe, repeat=len(bound)):
@@ -123,11 +135,18 @@ class LogicVerifier:
         kind = meta.get("kind")
         timeout_s = float(meta.get("timeout_s", 3.0))
 
+        def _solver() -> z3.Solver:
+            s = z3.Solver()
+            s.set("timeout", max(1, int(timeout_s * 1000)))
+            return s
+
         def _judge() -> bool:
             if kind == "knights_knaves":
                 people = list(meta["people"])
+                if len(people) > _MAX_UNIVERSE:
+                    return False
                 env: dict[str, z3.BoolRef] = {p: z3.Bool(p) for p in people}
-                s = z3.Solver()
+                s = _solver()
                 for p in people:
                     stmt = _build(meta["statements"][p], env)
                     s.add(env[p] == stmt)
@@ -143,7 +162,7 @@ class LogicVerifier:
                 universe = meta.get("universe")
                 premises = [_build(p, env, universe) for p in meta.get("premises", [])]
                 query = _build(meta["query"], env, universe)
-                s = z3.Solver()
+                s = _solver()
                 s.add(*premises)
                 s.add(z3.Not(query))
                 entailed = s.check() == z3.unsat
@@ -153,7 +172,7 @@ class LogicVerifier:
             if kind == "sat":
                 env: dict[str, z3.BoolRef] = {}
                 f = _build(meta["formula"], env, meta.get("universe"))
-                s = z3.Solver()
+                s = _solver()
                 s.add(f)
                 satisfiable = s.check() == z3.sat
                 got = _yesno(ans)
