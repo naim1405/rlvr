@@ -8,9 +8,8 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("HF_ALLOW_CODE_EVAL", "1")
-# Colocated 1×20GB: Megatron reserved + vLLM CuMem wake_up OOM'd at step 19
-# without this (caching allocator would not return sleep/wake holes).
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+# Do not set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True. vLLM CuMem
+# (sleep/wake colocated) asserts against it and dies before step 1.
 
 
 def _schema_defaults() -> dict:
