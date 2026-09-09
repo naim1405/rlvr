@@ -57,7 +57,42 @@ def _to_gym_example(example: dict, idx: int) -> dict:
     return to_gym_record(example, line_no=idx)
 
 
-def load_nemo_gym_dataset(jsonl_path: str, tokenizer, num_repeats: int | None = None):
+def _family_key(example: dict) -> str:
+    fam = example.get("family") or example.get("task_name") or "unknown"
+    return str(fam).strip().upper()
+
+
+def interleave_by_family(examples: list[dict]) -> list[dict]:
+    """Round-robin rows across families, preserving order within a family.
+
+    reformat_dataset.py concatenates the corpus family by family (P0, P1, ...).
+    NeMo RL's validation loader is unshuffled and `validate()` only consumes
+    `max_val_samples // val_batch_size` batches, so on a capped run the
+    validation slice was 100% P0. Interleaving makes every prefix of the
+    dataset family-balanced without changing the row contents.
+    """
+    buckets: dict[str, list[dict]] = {}
+    for ex in examples:
+        buckets.setdefault(_family_key(ex), []).append(ex)
+    if len(buckets) <= 1:
+        return examples
+    order = sorted(buckets)  # deterministic: P0, P1, ..., P6
+    out: list[dict] = []
+    longest = max(len(b) for b in buckets.values())
+    for i in range(longest):
+        for fam in order:
+            bucket = buckets[fam]
+            if i < len(bucket):
+                out.append(bucket[i])
+    return out
+
+
+def load_nemo_gym_dataset(
+    jsonl_path: str,
+    tokenizer,
+    num_repeats: int | None = None,
+    interleave_families: bool = False,
+):
     """Load Gym JSONL and wrap each row as a NeMo-RL AllTaskProcessedDataset."""
     from nemo_rl.data.datasets import AllTaskProcessedDataset
     from nemo_rl.data.interfaces import DatumSpec
@@ -101,6 +136,13 @@ def load_nemo_gym_dataset(jsonl_path: str, tokenizer, num_repeats: int | None = 
     if num_repeats:
         examples = list(chain.from_iterable(repeat(ex, num_repeats) for ex in examples))
 
+    if interleave_families:
+        examples = interleave_by_family(examples)
+        print(
+            "[train_utils] interleaved rows round-robin across families so any "
+            "prefix (e.g. a capped validation slice) covers every family"
+        )
+
     datum_specs = [
         nemo_gym_example_to_nemo_rl_datum_spec(ex, idx) for idx, ex in enumerate(examples)
     ]
@@ -116,14 +158,26 @@ def load_nemo_gym_dataset(jsonl_path: str, tokenizer, num_repeats: int | None = 
     )
 
 
-def prepare_nemo_gym_dataset(config, tokenizer, jsonl_path: str):
-    repeats = None
+def _select(config, dotted: str, default=None):
     try:
         from omegaconf import OmegaConf
 
-        repeats = OmegaConf.select(config, "data.dataset_num_repeats")
+        value = OmegaConf.select(config, dotted)
+        return default if value is None else value
     except Exception:
-        data_cfg = config.get("data") if hasattr(config, "get") else None
-        if data_cfg is not None and hasattr(data_cfg, "get"):
-            repeats = data_cfg.get("dataset_num_repeats")
-    return load_nemo_gym_dataset(jsonl_path, tokenizer, num_repeats=repeats)
+        node = config
+        for part in dotted.split("."):
+            if node is None or not hasattr(node, "get"):
+                return default
+            node = node.get(part)
+        return default if node is None else node
+
+
+def prepare_nemo_gym_dataset(config, tokenizer, jsonl_path: str):
+    repeats = _select(config, "data.dataset_num_repeats")
+    # Default on: the train loader shuffles anyway, and the (unshuffled)
+    # validation loader needs it to see more than the first family.
+    interleave = bool(_select(config, "data.interleave_families", True))
+    return load_nemo_gym_dataset(
+        jsonl_path, tokenizer, num_repeats=repeats, interleave_families=interleave
+    )
