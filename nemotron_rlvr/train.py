@@ -145,6 +145,30 @@ def _unpack_setup(result):
     )
 
 
+def _configure_generation(generation_cfg, tokenizer):
+    """v0.5.0 / Super3: configure_generation_config. Newer trees may ship a parser."""
+    try:
+        from nemo_rl.models.generation.vllm_config_parse import parse_vllm_tokenizer_mode
+    except ImportError:
+        from nemo_rl.models.generation import configure_generation_config
+
+        return configure_generation_config(generation_cfg, tokenizer)
+    parse_vllm_tokenizer_mode(generation_cfg, tokenizer)
+    return generation_cfg
+
+
+def _setup_nemo_gym_config(config, tokenizer) -> None:
+    import inspect
+
+    from nemo_rl.environments.nemo_gym import setup_nemo_gym_config
+
+    params = inspect.signature(setup_nemo_gym_config).parameters
+    if "tokenizer" in params or len(params) >= 2:
+        setup_nemo_gym_config(config, tokenizer)
+    else:
+        setup_nemo_gym_config(config)
+
+
 def _install_and_rewrite_gym_paths(config, project_root: Path) -> None:
     scripts_dir = project_root / "scripts"
     if str(scripts_dir) not in sys.path:
@@ -187,21 +211,18 @@ def main():
     from nemo_rl.algorithms.grpo import setup, grpo_train
     from nemo_rl.algorithms.utils import get_tokenizer
     from nemo_rl.distributed.virtual_cluster import init_ray
-    from nemo_rl.models.generation.vllm_config_parse import parse_vllm_tokenizer_mode
     from train_utils import prepare_nemo_gym_dataset
 
     config = OmegaConf.load(str(config_path))
     OmegaConf.resolve(config)
 
     tokenizer = get_tokenizer(config.policy.tokenizer)
-    parse_vllm_tokenizer_mode(config.policy.generation, tokenizer)
+    config.policy.generation = _configure_generation(config.policy.generation, tokenizer)
 
     use_gym = _should_use_gym(config)
     if use_gym:
         _install_and_rewrite_gym_paths(config, project_root)
-        from nemo_rl.environments.nemo_gym import setup_nemo_gym_config
-
-        setup_nemo_gym_config(config)
+        _setup_nemo_gym_config(config, tokenizer)
 
     init_ray()
 

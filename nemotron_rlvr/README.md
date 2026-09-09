@@ -121,6 +121,12 @@ paths, then spins Gym up. If `setup()` already returns a Gym actor (Super3 /
 current NeMo RL), that actor is reused; on v0.5.0 a `NemoGym.remote` is created
 after the 10-tuple `setup()`.
 
+The yaml `run.env.container: nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super`
+is the **software image** (NeMo RL + Gym + vLLM + Megatron) that Super3
+training used. It is not the model. This pipeline trains the merged Qwen
+checkpoint. `python3 train.py` already running inside that container does
+not re-pull the image.
+
 ---
 
 ## Hardware notes

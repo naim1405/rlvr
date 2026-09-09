@@ -10,6 +10,10 @@
 # Layout: colocated sync-GRPO (one GPU for train + vLLM). Gym still needs
 # vLLM async_engine + expose_http_server. train.py copies nemotron_verifier
 # into $GYM_ROOT and rewrites config_paths to absolute paths.
+#
+# run.env.container is Super3 launch metadata (super_launch.sh). python3
+# train.py already inside the image ignores it. The tag is the NeMo RL +
+# Gym + vLLM + Megatron stack, not the model — we train Qwen, not Super3.
 # =============================================================================
 
 run:
