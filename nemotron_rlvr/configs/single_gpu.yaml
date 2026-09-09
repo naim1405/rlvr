@@ -33,12 +33,17 @@ cluster:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: "checkpoints/rlvr_results_single_gpu"
+  checkpoint_dir: "/workspace/rlvr/nemotron_rlvr/checkpoints/rlvr_results_single_gpu"
   metric_name: "val:total_reward/mean"
   higher_is_better: true
   keep_top_k: 3
   save_period: 20
-  model_save_format: "safetensors"
+  # Megatron backend (super-v3) ignores model_save_format: it always writes a
+  # Megatron-Bridge torch_dist checkpoint under policy/weights, and
+  # lm_policy.save_checkpoint() raises if this is non-null while
+  # policy.dtensor_cfg._v2 is false. Convert to HF safetensors afterwards with
+  # examples/converters/convert_megatron_to_hf.py --config <ckpt>/config.yaml.
+  model_save_format: null
   save_consolidated: false
   # Optimizer shards ~5GB extra on the A4500; weights-only is enough here.
   save_optimizer: false
