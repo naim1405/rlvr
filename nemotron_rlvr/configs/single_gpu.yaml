@@ -14,7 +14,7 @@
 
 run:
   data: data/train-split.jsonl
-  model: checkpoints/qwen_merged_sft
+  model: /workspace/rlvr/0.peft/checkpoints-smoke/qwen_merged_sft
   env:
     container: nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
     env_vars:
@@ -72,7 +72,7 @@ loss_fn:
   token_level_loss: true
 
 policy:
-  model_name: "checkpoints/qwen_merged_sft"
+  model_name: "/workspace/rlvr/0.peft/checkpoints-smoke/qwen_merged_sft"
   tokenizer:
     name: ${policy.model_name}
   train_global_batch_size: 8

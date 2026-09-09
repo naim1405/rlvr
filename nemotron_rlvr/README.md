@@ -60,7 +60,7 @@ cd nemotron_rlvr
 python3 scripts/merge_peft.py \
     --base Qwen/Qwen3-0.6B \
     --adapter /path/to/0.peft/checkpoints/epoch_2/model \
-    --output checkpoints/qwen_merged_sft
+    --output /workspace/rlvr/0.peft/checkpoints-smoke/qwen_merged_sft
 ```
 
 ### Step 3: Reformat the RLVR corpus to Gym JSONL
