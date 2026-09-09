@@ -1,0 +1,242 @@
+# =============================================================================
+# OVERNIGHT run on 1x RTX A4500 20GB (derived from single_gpu.yaml, which is
+# the 50-step smoke test and stays untouched):
+#   python3 train.py --config configs/single_gpu_overnight.yaml 2>&1 | tee logs/overnight.log
+#
+# Differences from single_gpu.yaml, and why:
+#   * max_num_steps 50 -> 1500 (~15s/step observed => ~6-7h; leave a margin).
+#   * num_prompts_per_step 2 -> 4, num_generations_per_prompt 4 -> 8, so
+#     train_global_batch_size = 32. Group size 8 makes "all-1.0" groups rarer
+#     and the leave-one-out baseline less noisy. Memory: rollouts are batched
+#     through vLLM (generation_batch_size unchanged); training stays at
+#     micro-batch 1 with sequence packing, so peak GPU memory is unchanged;
+#     only wall time per step grows (~2-3x).
+#   * val_period 25 -> 50, save_period 20 -> 100 (multiple of val_period, so
+#     every checkpoint carries val:total_reward/mean for keep_top_k ranking).
+#     val_at_start: true gives the step-0 baseline to compare against.
+#   * max_val_samples 8 -> 112 = 16 per family (data.interleave_families in
+#     train_utils.py makes the unshuffled val slice family-balanced), so
+#     validation accuracy is a P0-P6 number instead of a P0 number.
+#   * tensorboard_enabled: true -> logs/tensorboard (tensorboard is a NeMo RL
+#     dependency). Watch train/reward/mean, train/baseline_reward/pct_mixed,
+#     validation/accuracy, train/mean_gen_tokens_per_sample.
+#   * checkpoint_dir is a new directory so the run does not auto-resume from
+#     the 50-step smoke checkpoints.
+#   * lr_decay_iters follows max_num_steps (constant schedule anyway).
+# =============================================================================
+
+run:
+  data: data/train-split.jsonl
+  model: /workspace/rlvr/0.peft/checkpoints-smoke/qwen_merged_sft
+  env:
+    container: nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
+    env_vars:
+      NRL_VLLM_USE_V1: "1"
+      VLLM_ATTENTION_BACKEND: "FLASH_ATTN"
+
+cluster:
+  num_nodes: 1
+  gpus_per_node: 1
+  master_port_range_low: 1400
+  master_port_range_high: 1999
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: "/workspace/rlvr/nemotron_rlvr/checkpoints/rlvr_overnight_single_gpu"
+  metric_name: "val:total_reward/mean"
+  higher_is_better: true
+  keep_top_k: 5
+  save_period: 100
+  # Megatron backend (super-v3) ignores model_save_format: it always writes a
+  # Megatron-Bridge torch_dist checkpoint under policy/weights, and
+  # lm_policy.save_checkpoint() raises if this is non-null while
+  # policy.dtensor_cfg._v2 is false. Convert to HF safetensors afterwards with
+  # examples/converters/convert_megatron_to_hf.py --config <ckpt>/config.yaml.
+  model_save_format: null
+  save_consolidated: false
+  # Optimizer shards ~5GB extra on the A4500; weights-only is enough here.
+  save_optimizer: false
+
+grpo:
+  num_prompts_per_step: 4
+  num_generations_per_prompt: 8
+  num_val_generations_per_prompt: 1
+  max_rollout_turns: 1
+  max_num_epochs: 1
+  max_num_steps: 1500
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  advantage_clip_low: -50
+  advantage_clip_high: 50
+  penalize_invalid_tool_call: true
+  invalid_tool_call_advantage: -5.0
+  penalize_malformed_thinking: true
+  malformed_thinking_advantage: -5.0
+  val_period: 50
+  val_at_start: true
+  val_at_end: true
+  seed: 42
+  # train.py honors these caps (does not overwrite with len(val)).
+  # 16 per family x 7 families; interleaved loader => balanced slice.
+  max_val_samples: 112
+  val_batch_size: 16
+  use_dynamic_sampling: false
+  batch_multiplier: 1
+  overlong_filtering: false
+  reward_shaping:
+    enabled: false
+  reward_scaling:
+    enabled: false
+  async_grpo:
+    enabled: false
+
+loss_fn:
+  reference_policy_kl_penalty: 0.0
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.28
+  use_importance_sampling_correction: true
+  truncated_importance_sampling_ratio: 5
+  token_level_loss: true
+
+policy:
+  model_name: "/workspace/rlvr/0.peft/checkpoints-smoke/qwen_merged_sft"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  generation_batch_size: 2
+  logprob_batch_size: 1
+  max_total_sequence_length: 2048
+  precision: "bfloat16"
+  max_grad_norm: 1.0
+  make_sequence_length_divisible_by: 1
+  offload_optimizer_for_logprob: false
+  logprob_chunk_size: null
+  optimizer: null
+  scheduler: null
+
+  dtensor_cfg:
+    enabled: false
+
+  dynamic_batching:
+    enabled: false
+
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: 2048
+    logprob_mb_tokens: 2048
+    algorithm: "modified_first_fit_decreasing"
+    microbatch_order: "packer"
+    sequence_length_round: 64
+
+  megatron_cfg:
+    enabled: true
+    # 2 = empty_cache after train so reserved does not accumulate across steps
+    # (step 19 wake_up OOM: Megatron reserved 8.5GB + vLLM remap).
+    empty_unused_memory_level: 2
+    activation_checkpointing: true
+    converter_type: "Qwen2ForCausalLM"
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    pipeline_dtype: ${policy.precision}
+    sequence_parallel: false
+    apply_rope_fusion: true
+    cuda_graph_impl: "none"
+    recompute_granularity: "full"
+    # Super3 Nemotron configs default MTP on. Qwen has none. Must be null, not 0:
+    # gpt_model._postprocess treats 0 as enabled and process_mtp_loss() clones
+    # labels during get_logprobs (labels are None) → AttributeError.
+    mtp_num_layers: null
+    mtp_loss_scaling_factor: 0.0
+    mtp_use_repeated_layer: false
+    mtp_detach_heads: false
+    checkpoint:
+      async_save: false
+    peft:
+      enabled: false
+    optimizer:
+      optimizer: "adam"
+      lr: 3.0e-6
+      min_lr: 3.0e-7
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"
+      adam_beta1: 0.9
+      adam_beta2: 0.999
+      adam_eps: 1.0e-8
+      use_distributed_optimizer: false
+      use_precision_aware_optimizer: false
+      clip_grad: ${policy.max_grad_norm}
+      optimizer_cpu_offload: false
+    scheduler:
+      lr_decay_style: "constant"
+      lr_decay_iters: 1500
+      lr_warmup_iters: 3
+      lr_warmup_init: 3.0e-7
+    distributed_data_parallel_config:
+      grad_reduce_in_fp32: false
+      overlap_grad_reduce: false
+      overlap_param_gather: false
+      use_custom_fsdp: false
+
+  generation:
+    backend: "vllm"
+    max_new_tokens: 1536
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
+    colocated:
+      enabled: true
+      resources:
+        gpus_per_node: null
+        num_nodes: null
+    vllm_cfg:
+      async_engine: true
+      expose_http_server: true
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
+      # 0.45 left too little headroom once Megatron reserved grew (~8.5GB).
+      gpu_memory_utilization: 0.32
+      max_model_len: 2048
+      enforce_eager: true
+      precision: ${policy.precision}
+      kv_cache_dtype: "auto"
+
+data:
+  shuffle: true
+  interleave_families: true
+  num_workers: 1
+  train:
+    data_path: "data/train-split.jsonl"
+  validation:
+    data_path: "data/val-split.jsonl"
+
+env:
+  should_use_nemo_gym: true
+  nemo_gym:
+    port_range_low: 15001
+    port_range_high: 20000
+    skip_venv_if_present: true
+    # train.py rewrites these to absolute paths after copying the server
+    # into $GYM_ROOT/resources_servers/nemotron_verifier/.
+    config_paths:
+      - responses_api_models/vllm_model/configs/vllm_model_for_training.yaml
+      - resources_servers/nemotron_verifier/configs/nemotron_verifier.yaml
+
+logger:
+  log_dir: "logs"
+  num_val_samples_to_print: 4
+  wandb_enabled: false
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: false
+  wandb:
+    project: "rlvr"
+    name: "rlvr-single-gpu"
