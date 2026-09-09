@@ -274,15 +274,15 @@ def _configure_val_sizes(config, val_dataset) -> None:
             config.grpo.val_batch_size = min(int(vbs), cap)
 
 
-def _looks_like_gym_actor(obj) -> bool:
-    if obj is None:
-        return False
-    return any(hasattr(obj, name) for name in ("health_check", "prepare_for_generation", "get_reward"))
-
-
 def _unpack_setup(result):
-    """v0.5.0 setup() is a 10-tuple. Super3/main insert nemo_gym as the 3rd value."""
+    """v0.5.0 setup() is a 10-tuple. Super3 returns 11 with Gym at index 2.
+
+    Super3 NemoGym exposes `_spinup`, not `health_check`, so do not require
+    health_check to treat index 2 as the Gym actor.
+    """
     result = tuple(result)
+    print(f"[train] setup() returned {len(result)} values: {[type(x).__name__ for x in result]}")
+
     if len(result) == 10:
         (
             policy,
@@ -309,7 +309,7 @@ def _unpack_setup(result):
             "grpo_state": grpo_state,
             "master_config": master_config,
         }
-    if len(result) >= 11 and _looks_like_gym_actor(result[2]):
+    if len(result) >= 11:
         (
             policy,
             policy_generation,
@@ -324,6 +324,11 @@ def _unpack_setup(result):
             master_config,
             *_,
         ) = result
+        if isinstance(nemo_gym, (tuple, list)):
+            raise RuntimeError(
+                f"setup() 11-tuple index 2 looks like a cluster ({type(nemo_gym)!r}), "
+                "not a Gym actor. Cannot unpack."
+            )
         return {
             "policy": policy,
             "policy_generation": policy_generation,
@@ -339,8 +344,57 @@ def _unpack_setup(result):
         }
     raise RuntimeError(
         f"nemo_rl.algorithms.grpo.setup returned {len(result)} values; "
-        "expected 10 (v0.5.0) or ≥11 with a Gym actor at index 2."
+        "expected 10 (v0.5.0) or ≥11 (Super3)."
     )
+
+
+def _call_grpo_train(grpo_train, packed, tokenizer, task_to_env):
+    """Bind by name so v0.5 and Super3 signatures both work."""
+    import inspect
+
+    sig = inspect.signature(grpo_train)
+    available = {
+        "policy": packed["policy"],
+        "policy_generation": packed["policy_generation"],
+        "dataloader": packed["dataloader"],
+        "val_dataloader": packed["val_dataloader"],
+        "tokenizer": tokenizer,
+        "loss_fn": packed["loss_fn"],
+        "task_to_env": task_to_env,
+        "val_task_to_env": task_to_env,
+        "logger": packed["logger"],
+        "checkpointer": packed["checkpointer"],
+        "grpo_save_state": packed["grpo_state"],
+        "grpo_state": packed["grpo_state"],
+        "master_config": packed["master_config"],
+    }
+    kwargs = {}
+    for name, param in sig.parameters.items():
+        if name in available:
+            kwargs[name] = available[name]
+        elif param.default is inspect.Parameter.empty and param.kind not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            raise TypeError(
+                f"grpo_train requires {name!r} which train.py does not supply. "
+                f"signature={list(sig.parameters)}"
+            )
+    print(f"[train] calling grpo_train({', '.join(kwargs)})")
+    return grpo_train(**kwargs)
+
+
+def _shutdown_cluster(cluster) -> None:
+    clusters = cluster if isinstance(cluster, (tuple, list)) else (cluster,)
+    for item in clusters:
+        if item is None:
+            continue
+        shutdown = getattr(item, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown()
+            except Exception as exc:
+                print(f"[train] cluster shutdown: {exc}")
 
 
 def _ensure_generation_defaults(generation_cfg):
@@ -475,11 +529,6 @@ def main():
     policy = packed["policy"]
     policy_generation = packed["policy_generation"]
     cluster = packed["cluster"]
-    dataloader = packed["dataloader"]
-    val_dataloader = packed["val_dataloader"]
-    logger = packed["logger"]
-    checkpointer = packed["checkpointer"]
-    grpo_state = packed["grpo_state"]
     master_config = packed["master_config"]
     nemo_gym = packed["nemo_gym"]
 
@@ -496,24 +545,16 @@ def main():
             nemo_gym = NemoGym.options(
                 runtime_env={"py_executable": sys.executable}
             ).remote(nemo_gym_config)
-        ray.get(nemo_gym.health_check.remote())
+            packed["nemo_gym"] = nemo_gym
+        if hasattr(nemo_gym, "health_check"):
+            ray.get(nemo_gym.health_check.remote())
         task_to_env = {"nemo_gym": nemo_gym}
 
-    grpo_train(
-        policy,
-        policy_generation,
-        dataloader,
-        val_dataloader,
-        logger,
-        checkpointer,
-        grpo_state,
-        master_config,
-        task_to_env,
-    )
+    _call_grpo_train(grpo_train, packed, tokenizer, task_to_env)
 
     if hasattr(policy, "shutdown_collective_rpc"):
         policy.shutdown_collective_rpc()
-    cluster.shutdown()
+    _shutdown_cluster(cluster)
 
 
 if __name__ == "__main__":
