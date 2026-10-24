@@ -6,3 +6,9 @@ others/
 *.jsonl
 
 .venv
+
+# Container images and runtime caches (Singularity/HPC port)
+*.sif
+Containers/
+.cache/
+.singularity-cache/

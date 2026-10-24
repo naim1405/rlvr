@@ -1,0 +1,43 @@
+#!/bin/bash -l
+# =============================================================================
+# PEFT checkpoint format-check job (infer.py) for gpuq2 (1x A100 80GB).
+# Loads $MODEL_ID + the newest LoRA adapter and reports
+# "<think>...</think><answer>...</answer>" PASS/FAIL per sample.
+#
+# IMPORTANT: MODEL_ID must be the SAME base model the adapter was trained
+# from. (infer.py also tries to read it back from adapter_config.json.)
+#
+# SUBMIT FROM THE REPO ROOT:
+#   # newest adapter under 0.peft/checkpoints/
+#   qsub -v MODEL_ID=Qwen/Qwen3-0.6B 0.peft/hpc/pbs_infer.pbs
+#
+#   # a smoke-run adapter (CHECKPOINT_DIR is a *container* path)
+#   qsub -v MODEL_ID=Qwen/Qwen3-0.6B,CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-smoke,INFER_SHOW_EXPECTED=1 \
+#        0.peft/hpc/pbs_infer.pbs
+#
+#   # one specific adapter directory
+#   qsub -v MODEL_ID=Qwen/Qwen3-8B,ADAPTER_PATH=/workspace/rlvr/0.peft/checkpoints/epoch_1/model \
+#        0.peft/hpc/pbs_infer.pbs
+#
+# If your allocation needs an account/project code, duplicate one of the
+# commented lines below WITHOUT the extra leading '#', and fill it in:
+##PBS -A <project_account>
+##PBS -W group_list=<GroupName>
+# =============================================================================
+#PBS -N peft-infer
+#PBS -q gpuq2
+#PBS -l select=1:ncpus=4:ngpus=1:mem=32gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+
+set -euo pipefail
+cd "${PBS_O_WORKDIR:?PBS_O_WORKDIR is not set - submit with qsub from the repo root}"
+export REPO_ROOT="${REPO_ROOT:-$PBS_O_WORKDIR}"
+
+if [[ ! -f "$REPO_ROOT/0.peft/hpc/pbs_run_singularity.sh" ]]; then
+  echo "ERROR: $REPO_ROOT does not look like the rlvr repo root." >&2
+  echo "Submit from the repo root, or pass -v REPO_ROOT=/path/to/rlvr" >&2
+  exit 1
+fi
+
+bash "$REPO_ROOT/0.peft/hpc/pbs_run_singularity.sh" infer

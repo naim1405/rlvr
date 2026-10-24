@@ -12,16 +12,24 @@ Updated from main:checkpoints/infer_no_system.py with:
   - --show-expected to compare generation vs training completion side by side
   - explicit enable_thinking=True (== Qwen3 template default, matches training)
 
-Usage (inside the container, from /tmp/0.peft):
+Usage (from this directory, inside a container or any env with the deps):
   python infer.py                                        # auto adapter + 5 dataset samples
   python infer.py --question "What is 12*13?"            # single custom question
   python infer.py --num-samples 10 --show-expected       # 10 samples with expected outputs
-  python infer.py --adapter /tmp/0.peft/checkpoints-smoke/epoch_0_step_200/model
+  python infer.py --adapter checkpoints-smoke/epoch_0/model
+  python infer.py --base Qwen/Qwen3-8B --checkpoint-dir checkpoints
   python infer.py --questions-file my_questions.txt      # one question per line
+
+Paths default to locations relative to this file (not a fixed container
+mount), so the same command works locally, in Docker, and in Singularity.
+The base model defaults to $MODEL_ID, then to the base recorded in the
+adapter's adapter_config.json, then to Qwen/Qwen3-0.6B. It MUST be the
+same base model the adapter was trained from.
 """
 
 import argparse
 import json
+import os
 import random
 import re
 import sys
@@ -31,12 +39,15 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
+HERE = Path(__file__).resolve().parent
+
 # Candidate checkpoint roots (first existing one wins when --adapter is absent).
 DEFAULT_CHECKPOINT_DIRS = [
-    "/tmp/0.peft/checkpoints",
-    "/tmp/0.peft/checkpoints-smoke",
+    str(HERE / "checkpoints"),
+    str(HERE / "checkpoints-smoke"),
 ]
-DEFAULT_DATASET = "/tmp/0.peft/dataset/train.jsonl"
+DEFAULT_DATASET = str(HERE / "dataset" / "train.jsonl")
+FALLBACK_BASE_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_QUESTION = "A train travels at 98 miles per hour. How far does it travel in 30 hours?"
 
 # Lenient on whitespace: the chat template inserts an extra newline between
@@ -79,6 +90,25 @@ def resolve_adapter(args) -> Path:
         "No adapter found. Pass --adapter <.../model> or --checkpoint-dir <...>. "
         f"Searched: {', '.join(str(d) for d in search)}"
     )
+
+
+def resolve_base_model(explicit: str | None, adapter_path: Path) -> str:
+    """Base model the adapter belongs to: flag, env, adapter config, fallback."""
+    if explicit:
+        return explicit
+    for env_name in ("MODEL_ID", "PEFT_BASE_MODEL"):
+        if os.environ.get(env_name):
+            return os.environ[env_name]
+    config_path = adapter_path / "adapter_config.json"
+    if config_path.is_file():
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            config = {}
+        recorded = config.get("base_model_name_or_path")
+        if recorded:
+            return str(recorded)
+    return FALLBACK_BASE_MODEL
 
 
 def check_format(text: str) -> tuple[bool, str]:
@@ -137,7 +167,12 @@ def sample_dataset(path: Path, n: int, seed: int) -> list[dict]:
 
 def main():
     parser = argparse.ArgumentParser(description="Test a 0.peft LoRA checkpoint manually.")
-    parser.add_argument("--base", default="Qwen/Qwen3-0.6B")
+    parser.add_argument(
+        "--base",
+        default=None,
+        help="Base model id/path the adapter was trained from "
+        "(default: $MODEL_ID, else adapter_config.json, else Qwen/Qwen3-0.6B)",
+    )
     parser.add_argument("--adapter", default=None, help="Direct path to .../model adapter dir")
     parser.add_argument("--checkpoint-dir", default=None, help="Checkpoint root to auto-pick latest from")
     parser.add_argument("--question", default=None, help="Single question to test")
@@ -154,6 +189,7 @@ def main():
     args = parser.parse_args()
 
     adapter_path = resolve_adapter(args)
+    args.base = resolve_base_model(args.base, adapter_path)
     print(f"Base:    {args.base}")
     print(f"Adapter: {adapter_path}")
     if not (adapter_path / "adapter_config.json").exists():

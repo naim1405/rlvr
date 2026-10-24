@@ -1,14 +1,20 @@
 import argparse
+import os
 from pathlib import Path
 from transformers import AutoTokenizer
 
 from mydataset import QwenPEFTDataset
 
+HERE = Path(__file__).resolve().parent
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base", default="Qwen/Qwen3-0.6B")
-    parser.add_argument("--path", default="/home/ezio/Projects/rlhf/rlvr/0.peft/dataset/train.jsonl")
+    parser.add_argument(
+        "--base",
+        default=os.environ.get("MODEL_ID") or os.environ.get("PEFT_BASE_MODEL") or "Qwen/Qwen3-0.6B",
+    )
+    parser.add_argument("--path", default=str(HERE / "dataset" / "train.jsonl"))
     parser.add_argument("--split", default="train")
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--validation-fraction", type=float, default=0.02)

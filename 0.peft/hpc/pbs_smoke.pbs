@@ -1,0 +1,39 @@
+#!/bin/bash -l
+# =============================================================================
+# PEFT *smoke* job for the Griffith gpuq2 queue (1x A100 80GB).
+#
+# PURPOSE: prove container + GPU + dataset + recipe rendering + a few real
+# training steps + checkpoint writing, using 512 rows / 1 epoch. This is NOT
+# a quality run. Submit this before pbs_train.pbs, every time the model,
+# image, or paths change.
+#
+# SUBMIT FROM THE REPO ROOT (so $PBS_O_WORKDIR is the repo):
+#   qsub 0.peft/hpc/pbs_smoke.pbs
+#   qsub -v MODEL_ID=Qwen/Qwen3-8B 0.peft/hpc/pbs_smoke.pbs
+#   qsub -v SIF_PATH=/scratch/$USER/Containers/nemo-automodel_26.04.00.sif \
+#        0.peft/hpc/pbs_smoke.pbs
+#
+# If your allocation needs an account/project code, duplicate one of the
+# commented lines below WITHOUT the extra leading '#', and fill it in:
+##PBS -A <project_account>
+##PBS -W group_list=<GroupName>
+##PBS -m abe
+##PBS -M you@example.edu.au
+# =============================================================================
+#PBS -N peft-smoke
+#PBS -q gpuq2
+#PBS -l select=1:ncpus=4:ngpus=1:mem=32gb
+#PBS -l walltime=02:00:00
+#PBS -j oe
+
+set -euo pipefail
+cd "${PBS_O_WORKDIR:?PBS_O_WORKDIR is not set - submit with qsub from the repo root}"
+export REPO_ROOT="${REPO_ROOT:-$PBS_O_WORKDIR}"
+
+if [[ ! -f "$REPO_ROOT/0.peft/hpc/pbs_run_singularity.sh" ]]; then
+  echo "ERROR: $REPO_ROOT does not look like the rlvr repo root." >&2
+  echo "Submit from the repo root, or pass -v REPO_ROOT=/path/to/rlvr" >&2
+  exit 1
+fi
+
+bash "$REPO_ROOT/0.peft/hpc/pbs_run_singularity.sh" smoke
