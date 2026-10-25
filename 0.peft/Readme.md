@@ -12,6 +12,9 @@ for GRPO/RLVR.
   own machine first (Docker, or Apptainer/Singularity if you have it).
 - **[CLUSTER_RUNBOOK.md](CLUSTER_RUNBOOK.md)** — run it on the Griffith
   cluster (Singularity + PBS, `gpuq2`, 1× A100 80 GB).
+- **[CLUSTER_HANDOFF.md](CLUSTER_HANDOFF.md)** — if someone else (e.g. your
+  Professor) writes the PBS script, hand them this: the one run script to
+  call (`run_peft_training.sh`) and the exact resources to request.
 
 Both go through the same entrypoint, `run_in_container.sh`, and both render
 the actual training recipe with `render_recipe.py`, so a local pass means the
@@ -27,7 +30,10 @@ cd 0.peft/dataset && unzip -o sft_data.zip        # -> train.jsonl, 35k rows
 bash 0.peft/hpc/run_local_docker.sh dataset-smoke
 bash 0.peft/hpc/run_local_docker.sh smoke
 
-# 3. cluster (from repo root, after building the .sif)
+# 3. cluster: someone else writes the PBS script -> its body only needs:
+#      bash <repo>/0.peft/run_peft_training.sh smoke    # then: train, then: infer
+#    (see CLUSTER_HANDOFF.md for the resources to request)
+#    ...or submit the ready-made examples yourself:
 bash 0.peft/hpc/build_sif.sh
 qsub 0.peft/hpc/pbs_smoke.pbs
 qsub 0.peft/hpc/pbs_train.pbs
@@ -45,6 +51,7 @@ what else changes with size (micro-batch, and the limits at 32B).
 | `recipe.yaml` | Template training config (defaults = Qwen3-0.6B). Don't hand-edit per run. |
 | `render_recipe.py` | Renders a per-run recipe (model, container paths, batch sizes, smoke preset) into `runs/recipes/` and validates it. |
 | `run_in_container.sh` | The one entrypoint *inside* the container: `check`, `prefetch`, `dataset-smoke`, `smoke`, `train`, `infer`. |
+| `run_peft_training.sh` | Scheduler-agnostic cluster entrypoint to hand to whoever writes the PBS script; runs the same modes and logs to `logs/`. |
 | `mydataset.py` | Chat-format SFT dataset; loss on assistant tokens only. |
 | `smoke_test_dataset.py` | Dataloader/tokenizer check (no training). |
 | `infer.py` | Checkpoint tester: generation + format PASS/FAIL. Base model comes from `--base`/`$MODEL_ID`/`adapter_config.json`. |
@@ -53,7 +60,7 @@ what else changes with size (micro-batch, and the limits at 32B).
 | `hpc/run_local_docker.sh` | Local Docker launcher. |
 | `hpc/run_local_singularity.sh` | Local Apptainer/Singularity launcher (exact cluster layout). |
 | `hpc/pbs_run_singularity.sh` | Host-side launcher shared by the PBS scripts. |
-| `hpc/pbs_smoke.pbs` / `pbs_train.pbs` / `pbs_infer.pbs` | Griffith `gpuq2` batch jobs. |
+| `hpc/pbs_smoke.pbs` / `pbs_train.pbs` / `pbs_infer.pbs` | Griffith `gpuq2` batch jobs — submit them yourself, or use as reference examples for whoever writes the PBS script. |
 | `dataset/sft_data.zip` | `train.jsonl`, 35k rows (the extracted `.jsonl` is git-ignored). |
 | `Tuning.md` | [Parameter tuning guide](Tuning.md): how VRAM scales, per-knob advice. |
 

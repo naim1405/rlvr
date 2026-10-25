@@ -14,6 +14,15 @@ job script runs the container with Singularity; the container runs
 cluster flow deliberately re-uses the same scripts, so most of what can break
 has already broken (and been fixed) on your machine.
 
+> **If your Professor/admin writes the PBS script for you** (the current
+> arrangement), you don't submit anything yourself: hand them
+> **[CLUSTER_HANDOFF.md](CLUSTER_HANDOFF.md)** — it gives them the single
+> run script to call (`0.peft/run_peft_training.sh <smoke|train|infer>`)
+> and the exact resources to request. This runbook then serves as the
+> technical reference behind it, and `hpc/pbs_*.pbs` are ready-made
+> examples of those resource requests. The `qsub` commands below are the
+> self-service equivalent if you later get submission access.
+
 ---
 
 ## 1. How the cluster constraints shape this run
