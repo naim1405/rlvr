@@ -103,6 +103,7 @@ def render_recipe(
     num_samples_limit: int | None = None,
     val_num_samples_limit: int | None = None,
     group_by_length: bool | None = None,
+    use_triton: bool | None = None,
     seed: int | None = None,
 ) -> dict[str, Any]:
     """Return a modified deep-enough copy of ``base_config``.
@@ -195,6 +196,11 @@ def render_recipe(
     if group_by_length is not None:
         cfg.setdefault("dataloader", {})["group_by_length"] = bool(group_by_length)
 
+    if use_triton is not None:
+        # Triton LoRA kernels are faster but keep extra workspace; disabling
+        # them can be the difference between OOM and running on a 4 GB GPU.
+        cfg.setdefault("peft", {})["use_triton"] = bool(use_triton)
+
     if seed is not None:
         cfg.setdefault("rng", {})["seed"] = int(seed)
 
@@ -245,6 +251,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--num-samples-limit", type=int, default=None)
     parser.add_argument("--val-num-samples-limit", type=int, default=None)
     parser.add_argument("--group-by-length", type=_bool_arg, default=None)
+    parser.add_argument("--use-triton", type=_bool_arg, default=None)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args(argv)
 
@@ -277,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             num_samples_limit=args.num_samples_limit,
             val_num_samples_limit=args.val_num_samples_limit,
             group_by_length=args.group_by_length,
+            use_triton=args.use_triton,
             seed=args.seed,
         )
     except ValueError as exc:

@@ -22,8 +22,10 @@ job is to validate the pipeline, not to be the final model.
 | macOS / no NVIDIA GPU | Unit tests only | Test level 0 below works; training needs an NVIDIA GPU (that's what the cluster is for). |
 
 You need roughly **30 GB free disk** (container image + model cache +
-checkpoints) and, for the smoke/full runs, a GPU with **≥16 GB VRAM**
-comfortable (the 0.6B recipe peaks around 10–13 GB; see `Tuning.md`).
+checkpoints) and, for the smoke/full runs at their default settings, a GPU
+with **≥16 GB VRAM** (the 0.6B recipe peaks around 10–13 GB; see
+`Tuning.md`). A 4 GB laptop GPU can still run a scaled-down pipeline-only
+smoke test — see §5.1.
 
 All commands below are run **from the repo root** unless stated otherwise.
 
@@ -102,9 +104,16 @@ repo, so it's shared by every later run), loads `train.jsonl` through
 
 **Pass criteria:** `Loaded 34300 samples for split='train'` (35,000 minus the
 2% validation split), prompt/completion previews look like your data, and
-`supervised_tokens` is **> 0 and < input_ids length** — the prompt is masked
-with `-100`, the assistant tokens are not. This is the test that catches "the
-chat template changed under us" when you switch models later.
+`supervised_tokens` is **> 0 and < input_ids length for ordinary rows** — the
+prompt is masked with `-100`, the assistant tokens are not. One exception is
+expected and is *not* a failure: a row whose prompt alone exceeds
+`max_length` is truncated before any assistant token survives, so it shows
+`input_ids == max_length` and **`supervised_tokens: 0`** (e.g. a long P4
+planning prompt at length 2048). Such rows contribute no loss; they are a
+known cost of the chosen `max_length` (see the truncation table in
+`Tuning.md`), and lowering `max_length` makes them more frequent. This test
+is what catches "the chat template changed under us" when you switch models
+later — what matters is that *some* examples show proper masking.
 
 ## 5. Test level 3 — training smoke (the real pipeline, 512 rows)
 
@@ -125,6 +134,37 @@ validation every 10 steps), runs `automodel` on it, and writes adapters under
   `epoch_*/model/` directory.
 - `0.peft/runs/recipes/smoke-local.yaml` matches what you intended (keep this
   habit: the rendered file *is* the config that ran).
+
+### 5.1 The 4 GB laptop variant (e.g. RTX 3050 Laptop)
+
+The default smoke preset (micro-batch 4 × 1024 tokens) is sized for a
+~20 GB card and OOMs immediately on 4 GB — roughly 1.2 GB of weights plus
+activations/logits for 4,096 token positions do not fit. Scale the
+*micro-batch token count* down ~10× instead. This verifies the identical
+pipeline (same renderer, dataset, container) — just don't read anything
+into the loss, and don't attempt the full run on this GPU:
+
+```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+USE_TRITON=false \
+LOCAL_BATCH_SIZE=1 GLOBAL_BATCH_SIZE=4 MAX_LENGTH=384 \
+NUM_SAMPLES_LIMIT=128 VAL_NUM_SAMPLES_LIMIT=32 \
+GROUP_BY_LENGTH=false \
+bash 0.peft/hpc/run_local_singularity.sh smoke
+```
+
+Why each knob: `LOCAL_BATCH_SIZE=1` + `MAX_LENGTH=384` cut per-step token
+positions 4×1024 → 1×≤384 (peak activation/logit memory scales with
+this); `GLOBAL_BATCH_SIZE=4` keeps the run to 32 optimizer steps over the
+128-row subset (accumulation does not affect peak memory);
+`USE_TRITON=false` drops the Triton LoRA kernel workspace;
+`GROUP_BY_LENGTH=false` avoids length-sorted peaks;
+`expandable_segments` reduces fragmentation. Close other GPU apps first —
+a laptop GPU shares its 4 GB with your desktop. If this fits, retry
+`MAX_LENGTH=512`; if it still OOMs, go to 256 before touching anything
+else. Expect more `supervised_tokens: 0` rows at these lengths (prompt
+truncation) — the run is a plumbing test only. The same settings work via
+`run_local_docker.sh`.
 
 ## 6. Test level 4 — does the smoke adapter produce the format?
 

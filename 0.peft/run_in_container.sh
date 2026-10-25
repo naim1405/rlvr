@@ -18,7 +18,7 @@
 # Configuration is by environment variable (see LOCAL_TESTING.md and
 # CLUSTER_RUNBOOK.md): MODEL_ID, DATA_PATH, CHECKPOINT_DIR, RUN_NAME,
 # GLOBAL_BATCH_SIZE, LOCAL_BATCH_SIZE, NUM_EPOCHS, MAX_LENGTH, LR,
-# GROUP_BY_LENGTH, NPROC_PER_NODE, HF_HOME, ...
+# GROUP_BY_LENGTH, USE_TRITON, NPROC_PER_NODE, HF_HOME, ...
 # =============================================================================
 set -euo pipefail
 
@@ -123,6 +123,7 @@ render_for_run() {
   [[ -n "${NUM_SAMPLES_LIMIT:-}" ]] && args+=(--num-samples-limit "$NUM_SAMPLES_LIMIT")
   [[ -n "${VAL_NUM_SAMPLES_LIMIT:-}" ]] && args+=(--val-num-samples-limit "$VAL_NUM_SAMPLES_LIMIT")
   [[ -n "${GROUP_BY_LENGTH:-}" ]] && args+=(--group-by-length "$GROUP_BY_LENGTH")
+  [[ -n "${USE_TRITON:-}" ]] && args+=(--use-triton "$USE_TRITON")
   [[ -n "${SEED:-}" ]] && args+=(--seed "$SEED")
 
   python3 "$PEFT_DIR/render_recipe.py" "${args[@]}"

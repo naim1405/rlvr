@@ -70,11 +70,13 @@ class RenderRecipeTests(unittest.TestCase):
             max_length=1536,
             lr=1.0e-4,
             group_by_length=False,
+            use_triton=False,
         )
         self.assertEqual(cfg["step_scheduler"]["local_batch_size"], 2)
         self.assertEqual(cfg["dataset"]["max_length"], 1536)
         self.assertEqual(cfg["optimizer"]["lr"], 1.0e-4)
         self.assertFalse(cfg["dataloader"]["group_by_length"])
+        self.assertFalse(cfg["peft"]["use_triton"])
 
     def test_smoke_preset(self):
         cfg = render_recipe(base_cfg(), model="Qwen/Qwen3-0.6B", smoke=True)

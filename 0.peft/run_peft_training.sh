@@ -23,7 +23,7 @@
 #
 # Optional environment (see CLUSTER_HANDOFF.md for the full list):
 #   MODEL_ID, SIF_PATH, RUN_NAME, CHECKPOINT_DIR, LR, LOCAL_BATCH_SIZE,
-#   GLOBAL_BATCH_SIZE, MAX_LENGTH, NUM_EPOCHS, GROUP_BY_LENGTH,
+#   GLOBAL_BATCH_SIZE, MAX_LENGTH, NUM_EPOCHS, GROUP_BY_LENGTH, USE_TRITON,
 #   HF_HUB_OFFLINE, ADAPTER_PATH, INFER_SHOW_EXPECTED, LOG_DIR
 #
 # Output is mirrored to 0.peft/logs/<mode>-<timestamp>-<job>.log and the
