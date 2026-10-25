@@ -10,7 +10,7 @@
 #   qsub 0.peft/hpc/pbs_train.pbs
 #
 # Resource notes: sized for the configured Qwen3-8B LoRA run on one
-# A100 80GB (64 GB host RAM, 36 h walltime request).
+# A100 80GB (64 GB host RAM, 48 h walltime request including buffer).
 #
 # If your allocation needs an account/project code, duplicate one of the
 # commented lines below WITHOUT the extra leading '#', and fill it in:
@@ -22,7 +22,7 @@
 #PBS -N peft-train
 #PBS -q gpuq2
 #PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
-#PBS -l walltime=36:00:00
+#PBS -l walltime=48:00:00
 #PBS -j oe
 
 set -euo pipefail
