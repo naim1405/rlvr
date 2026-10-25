@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen3 training run card — Griffith gpuq2 (1× A100 80 GB)</title>
+<style>
+  :root{--ink:#17202a;--muted:#5b6b7b;--line:#d9e2ec;--bg:#f6f8fb;--card:#fff;--head:#eef3f8;
+        --green:#0d6b43;--green-bg:#e6f6ee;--blue:#155a94;--blue-bg:#e8f2fb;--amber:#8a5d12;--amber-bg:#fff4d6;--red:#922b21;--red-bg:#fdecea}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.45}
+  main{max-width:1240px;margin:0 auto;padding:26px 18px 42px}
+  h1{font-size:1.6rem;line-height:1.2;margin:0 0 6px}
+  h2{font-size:1.12rem;margin:24px 0 10px}
+  h3{font-size:1rem;margin:0 0 8px}
+  p{margin:8px 0}.sub{color:var(--muted);max-width:980px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:16px 0;box-shadow:0 1px 2px rgba(16,42,67,.04)}
+  .scroll{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;min-width:1180px;font-size:.88rem}
+  th,td{border-bottom:1px solid var(--line);padding:9px 8px;text-align:left;vertical-align:top}
+  th{background:var(--head);color:#243b53;white-space:nowrap}
+  td.num,th.num{text-align:right}
+  code{background:var(--head);border-radius:5px;padding:1px 5px;font-size:.86em}
+  pre{background:#0f1c2b;color:#d9e8f5;border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:.8rem;line-height:1.5;margin:10px 0}
+  pre code{background:none;color:inherit;padding:0;font-size:1em}
+  .badge{display:inline-block;border-radius:999px;padding:2px 9px;font-weight:650;font-size:.78rem;white-space:nowrap}
+  .ok{background:var(--green-bg);color:var(--green)} .rec{background:var(--blue-bg);color:var(--blue)}
+  .tight{background:var(--amber-bg);color:var(--amber)} .no{background:var(--red-bg);color:var(--red)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px}
+  .modelcard{border:1px solid var(--line);border-radius:14px;background:#fff;padding:14px 16px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .chip{background:var(--head);border-radius:999px;padding:2px 9px;font-size:.78rem;color:#243b53}
+  .note{color:var(--muted);font-size:.9rem}.small{font-size:.84rem;color:var(--muted)}
+  ul,ol{margin:8px 0 8px 20px;padding:0}li{margin:5px 0}
+  .callout{border-left:4px solid #2470b8;background:#f2f8fe;border-radius:8px;padding:10px 14px;margin:12px 0}
+  .warn{border-left-color:#df9f1f;background:#fffaf0}
+  @media (max-width:760px){h1{font-size:1.32rem}.grid{grid-template-columns:1fr}}
+  @media print{body{background:#fff}.card,.modelcard{box-shadow:none}pre{font-size:.68rem}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Qwen3 training run card — Griffith <code>gpuq2</code>, 1× A100 80 GB</h1>
+  <p class="sub">Pick a row → request those PBS resources → paste that model’s env block into the PBS body → smoke first, then train, then infer. This card is for the <b>current stage‑0 PEFT recipe</b> in <code>0.peft/</code>: bf16 LoRA (r=32, alpha=64, dropout 0.05, all <code>*_proj</code>), AdamW, 34,300 train rows, global batch 32, 2 epochs ≈ <b>2,144 optimizer steps</b>. Text‑only dense Qwen3 models only; the 32B row is included as a hard stop.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">How to use this card (read once)</h2>
+    <ol>
+      <li><b>Resources</b> in the table are the PBS request for the <b>train</b> job: always <code>1 node, ngpus=1 (A100 80 GB), queue gpuq2</code>, plus the row’s <code>ncpus / mem / walltime</code>. “Required VRAM” = expected peak on that one GPU (you cannot request a fraction of a GPU here).</li>
+      <li><b>Time</b> shows <i>expected runtime (estimate)</i> → <i>walltime to request</i>. Estimates assume ≈600 capped tokens/row at <code>max_length=2048</code> (dataset p50/p90 = 267/1343 tokens; 2048 truncates ≈7.5% of rows) ≈ 41M token positions over 2 epochs. Correct the request from your smoke timing (formula below) — do not treat any number here as measured.</li>
+      <li><b>Knobs</b> are environment variables already supported by <code>run_peft_training.sh</code> → <code>render_recipe.py</code>. Fixed by the recipe (not per‑row knobs): LoRA target/rank/alpha/dropout, bf16, FSDP2 (TP=CP=1), AdamW betas/eps/weight‑decay, seed 1111, validation split 2%, no system prompt. Changing LoRA rank/targets means editing <code>recipe.yaml</code> — don’t do it casually mid‑project.</li>
+      <li><b>Smoke gate (separate job, before train):</b> 1 GPU / 4 CPU / row’s train RAM / 2 h. Run the standard smoke first. For 8B/14B (and ideally 4B), also run a <i>production‑shape</i> smoke (recipe below the table) to measure true peak VRAM and sec/step at length 2048.</li>
+      <li>Use a <b>distinct <code>CHECKPOINT_DIR</code> and <code>RUN_NAME</code> per model/knob set</b> so rendered recipes, logs and adapters never mix. Keep <code>MODEL_ID</code> identical across smoke → train → infer → merge → RLVR.</li>
+    </ol>
+    <div class="callout"><b>Walltime from smoke:</b> from a production‑shape smoke, take steady‑state seconds/optimizer‑step <code>s</code> and request <code>hours ≈ s × 2144 × 1.5 ÷ 3600 + 0.5</code> (load/validation/checkpoint slack), rounded up. If that exceeds the card’s request, use the formula value.</div>
+  </div>
+
+  <div class="card scroll">
+    <h2 style="margin-top:0">Master chart — resources + tuned knobs per model (train job)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Model name / ID</th>
+          <th>Required VRAM<br><span class="small">GPU to request → est. peak</span></th>
+          <th class="num">Required RAM<br><span class="small">(host <code>mem</code>)</span></th>
+          <th class="num">Required CPU<br><span class="small">(<code>ncpus</code>)</span></th>
+          <th>Required time<br><span class="small">expected → request</span></th>
+          <th>Training knobs for this row (env vars)</th>
+          <th>Extra useful info</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Qwen3‑0.6B</b><br><code>Qwen/Qwen3-0.6B</code><br><span class="badge ok">Pipeline proof</span></td>
+          <td>1× A100 80 GB<br><b>≈10–20 GB peak</b><br><span class="small">weights ≈1.2 GB</span></td>
+          <td class="num"><b>32 GB</b></td>
+          <td class="num"><b>8</b></td>
+          <td>≈1–2 h → <b>request 6 h</b></td>
+          <td><code>LR=2e-4</code> · <code>LOCAL_BATCH_SIZE=4</code> · <code>GLOBAL_BATCH_SIZE=32</code> (accum ×8) · <code>MAX_LENGTH=2048</code> · <code>NUM_EPOCHS=2</code> · <code>GROUP_BY_LENGTH=true</code> · <code>USE_TRITON=true</code> · <code>CKPT_EVERY_STEPS=500</code> · <code>VAL_EVERY_STEPS=500</code></td>
+          <td>LoRA ≈20M params. Cache ≈1.2 GB; checkpoints ≈1 GB total. Optional speed‑up <i>only if</i> smoke peak ≤35 GB: <code>LOCAL_BATCH_SIZE=8</code> (accum ×4), fresh dir.</td>
+        </tr>
+        <tr>
+          <td><b>Qwen3‑1.7B</b><br><code>Qwen/Qwen3-1.7B</code><br><span class="badge ok">Easy step‑up</span></td>
+          <td>1× A100 80 GB<br><b>≈20–35 GB peak</b><br><span class="small">weights ≈3.4 GB</span></td>
+          <td class="num"><b>32 GB</b></td>
+          <td class="num"><b>8</b></td>
+          <td>≈2–4 h → <b>request 12 h</b></td>
+          <td><code>LR=2e-4</code> · <code>LOCAL_BATCH_SIZE=4</code> · <code>GLOBAL_BATCH_SIZE=32</code> (accum ×8) · <code>MAX_LENGTH=2048</code> · <code>NUM_EPOCHS=2</code> · <code>GROUP_BY_LENGTH=true</code> · <code>USE_TRITON=true</code> · <code>CKPT_EVERY_STEPS=500</code> · <code>VAL_EVERY_STEPS=500</code></td>
+          <td>LoRA ≈35M. Cache ≈3.4 GB; checkpoints ≈2 GB. Optional <code>LOCAL_BATCH_SIZE=8</code> only if smoke peak ≤40 GB.</td>
+        </tr>
+        <tr>
+          <td><b>Qwen3‑4B</b><br><code>Qwen/Qwen3-4B</code><br><span class="badge rec">Recommended: safest final</span></td>
+          <td>1× A100 80 GB<br><b>≈25–40 GB peak</b><br><span class="small">weights ≈8.0 GB</span></td>
+          <td class="num"><b>48 GB</b></td>
+          <td class="num"><b>8</b></td>
+          <td>≈4–8 h → <b>request 24 h</b></td>
+          <td><code>LR=1.5e-4</code> · <code>LOCAL_BATCH_SIZE=2</code> · <code>GLOBAL_BATCH_SIZE=32</code> (accum ×16) · <code>MAX_LENGTH=2048</code> · <code>NUM_EPOCHS=2</code> · <code>GROUP_BY_LENGTH=true</code> · <code>USE_TRITON=true</code> · <code>CKPT_EVERY_STEPS=250</code> · <code>VAL_EVERY_STEPS=250</code> · <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code></td>
+          <td>LoRA ≈66M. Cache ≈8 GB; checkpoints ≈6 GB if all kept. Optional <code>LOCAL_BATCH_SIZE=4</code> (accum ×8) only if production‑shape smoke peak ≤45 GB.</td>
+        </tr>
+        <tr>
+          <td><b>Qwen3‑8B</b><br><code>Qwen/Qwen3-8B</code><br><span class="badge rec">Recommended: quality pick</span></td>
+          <td>1× A100 80 GB<br><b>≈30–48 GB peak</b><br><span class="small">weights ≈16.4 GB</span></td>
+          <td class="num"><b>64 GB</b></td>
+          <td class="num"><b>8</b></td>
+          <td>≈8–16 h → <b>request 36 h</b></td>
+          <td><code>LR=1e-4</code> · <code>LOCAL_BATCH_SIZE=1</code> · <code>GLOBAL_BATCH_SIZE=32</code> (accum ×32) · <code>MAX_LENGTH=2048</code> · <code>NUM_EPOCHS=2</code> · <code>GROUP_BY_LENGTH=true</code> · <code>USE_TRITON=true</code> · <code>CKPT_EVERY_STEPS=250</code> · <code>VAL_EVERY_STEPS=250</code> · <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code></td>
+          <td>LoRA ≈87M. Cache ≈16 GB; checkpoints ≈8 GB. Likely best PEFT quality/comfort. Optional <code>LOCAL_BATCH_SIZE=2</code> (accum ×16) only if smoke peak ≤50 GB. Re‑check RLVR memory before locking as final.</td>
+        </tr>
+        <tr>
+          <td><b>Qwen3‑14B</b><br><code>Qwen/Qwen3-14B</code><br><span class="badge tight">Ceiling — smoke decides</span></td>
+          <td>1× A100 80 GB<br><b>≈50–72 GB peak</b><br><span class="small">weights ≈29.6 GB</span></td>
+          <td class="num"><b>96 GB</b></td>
+          <td class="num"><b>8</b></td>
+          <td>≈16–32 h → <b>request 72 h</b></td>
+          <td><code>LR=8e-5</code> · <code>LOCAL_BATCH_SIZE=1</code> · <code>GLOBAL_BATCH_SIZE=32</code> (accum ×32) · <code>MAX_LENGTH=2048</code> · <code>NUM_EPOCHS=2</code> · <code>GROUP_BY_LENGTH=true</code> · <code>USE_TRITON=true</code> · <code>CKPT_EVERY_STEPS=250</code> · <code>VAL_EVERY_STEPS=250</code> · <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code></td>
+          <td>LoRA ≈128M. Cache ≈30 GB; checkpoints ≈12 GB. <b>No batch upgrade.</b> If smoke peak &gt;72 GB / mid‑run OOM: fallback ladder below. Longest queue commitment; downstream 1‑GPU RLVR doubtful.</td>
+        </tr>
+        <tr>
+          <td><b>Qwen3‑32B</b><br><code>Qwen/Qwen3-32B</code><br><span class="badge no">STOP — do not run</span></td>
+          <td><b>&gt;80 GB required</b><br>≈92–110+ GB est.<br><span class="small">weights ≈65.6 GB + LoRA state ≈4.3 GB before activations</span></td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td>—</td>
+          <td>No knob set on this card makes it a sensible job. Would require re‑engineering: activation checkpointing + shorter sequences and likely quantised base/offload or multi‑GPU — none of which this recipe/queue provides.</td>
+          <td>Renderer already warns. Same “no” applies to MoE <code>30B-A3B</code>/<code>235B-A22B</code> as drop‑in swaps (see previous assessment chart).</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Why CPU = 8 everywhere: the dataset tokenizes on the fly (two tokenizer calls/sample) in <code>mydataset.py</code>; 8 cores keeps the GPU fed without over‑requesting. Why RAM grows with model: the load path stages weights through host memory — the row values leave headroom over the bf16 weight size without requesting “never‑runs” amounts.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Smoke gate for your chosen row (run before every first train)</h2>
+    <p>Standard smoke first (proves container/GPU/dataset/checkpointing). PBS resources: <b>1 GPU / 4 CPU / train‑row RAM / 2 h</b>.</p>
+    <pre><code>export MODEL_ID=&lt;row MODEL_ID&gt;
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=&lt;tag&gt;-smoke
+bash &lt;repo&gt;/0.peft/run_peft_training.sh smoke</code></pre>
+    <p>Then, for 4B/8B/14B, a <b>production‑shape smoke</b> (measures real peak + sec/step at length 2048; still only a 2,048‑row subset because smoke mode caps epochs/checkpointing unless you override them — so set <i>only</i> these shape knobs):</p>
+    <pre><code>export MODEL_ID=&lt;row MODEL_ID&gt;
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=&lt;tag&gt;-shape-smoke
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-smoke-&lt;tag&gt;
+export MAX_LENGTH=2048
+export LOCAL_BATCH_SIZE=&lt;row value&gt;
+export GLOBAL_BATCH_SIZE=32
+export GROUP_BY_LENGTH=&lt;row value&gt;
+export NUM_SAMPLES_LIMIT=2048
+# Deliberately do NOT set NUM_EPOCHS / CKPT_EVERY_STEPS / VAL_EVERY_STEPS here.
+bash &lt;repo&gt;/0.peft/run_peft_training.sh smoke</code></pre>
+    <p class="note">Record: rendered recipe (<code>0.peft/runs/recipes/smoke-*.yaml</code>), peak VRAM from the log, and steady sec/step. Apply the walltime formula and the headroom rules in each row’s “Extra” cell. Format‑check the smoke adapter with the same <code>MODEL_ID</code>/<code>CHECKPOINT_DIR</code> via <code>run_peft_training.sh infer</code> before spending a train slot.</p>
+    <div class="callout warn"><b>OOM fallback ladder (in order; change one thing, fresh <code>RUN_NAME</code>):</b> (1) confirm <code>PYTORCH_ALLOC_CONF=expandable_segments:True</code> is set; (2) <code>USE_TRITON=false</code> (frees kernel workspace, slower); (3) <code>MAX_LENGTH=1536</code> (truncation rises modestly); (4) <code>GROUP_BY_LENGTH=false</code> if failures look fragmentation/order‑related rather than at a single max‑length sample; (5) only then reconsider the model size. Never “fix” OOM by raising host RAM — that is a different memory.</div>
+  </div>
+
+  <h2>Copy‑paste train blocks (PBS body payload per model)</h2>
+  <p class="note">Replace <code>&lt;repo&gt;</code> with the cluster checkout path. Each block assumes dataset extracted and SIF built (one‑time setup in the handoff). After a successful train, run <code>bash &lt;repo&gt;/0.peft/run_peft_training.sh infer</code> in a job with the <i>same</i> <code>MODEL_ID</code> and <code>CHECKPOINT_DIR</code> (resources: 1 GPU / 4 CPU / train‑row RAM / 2 h). If the model was prefetched and compute nodes are offline, add <code>export HF_HUB_OFFLINE=1</code>.</p>
+
+  <div class="grid">
+    <section class="modelcard">
+      <h3>Qwen3‑0.6B — prove the pipeline</h3>
+      <div class="chips"><span class="chip">ngpus=1 A100</span><span class="chip">ncpus=8</span><span class="chip">mem=32gb</span><span class="chip">walltime=06:00:00</span><span class="chip">peak ≈10–20 GB</span></div>
+      <pre><code>export MODEL_ID=Qwen/Qwen3-0.6B
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=qwen3-0.6b
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-qwen3-0.6b
+export LR=2e-4
+export LOCAL_BATCH_SIZE=4
+export GLOBAL_BATCH_SIZE=32
+export MAX_LENGTH=2048
+export NUM_EPOCHS=2
+export GROUP_BY_LENGTH=true
+export USE_TRITON=true
+export CKPT_EVERY_STEPS=500
+export VAL_EVERY_STEPS=500
+bash &lt;repo&gt;/0.peft/run_peft_training.sh train</code></pre>
+    </section>
+
+    <section class="modelcard">
+      <h3>Qwen3‑1.7B — easy step‑up</h3>
+      <div class="chips"><span class="chip">ngpus=1 A100</span><span class="chip">ncpus=8</span><span class="chip">mem=32gb</span><span class="chip">walltime=12:00:00</span><span class="chip">peak ≈20–35 GB</span></div>
+      <pre><code>export MODEL_ID=Qwen/Qwen3-1.7B
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=qwen3-1.7b
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-qwen3-1.7b
+export LR=2e-4
+export LOCAL_BATCH_SIZE=4
+export GLOBAL_BATCH_SIZE=32
+export MAX_LENGTH=2048
+export NUM_EPOCHS=2
+export GROUP_BY_LENGTH=true
+export USE_TRITON=true
+export CKPT_EVERY_STEPS=500
+export VAL_EVERY_STEPS=500
+bash &lt;repo&gt;/0.peft/run_peft_training.sh train</code></pre>
+    </section>
+
+    <section class="modelcard">
+      <h3>Qwen3‑4B — safest final candidate ★</h3>
+      <div class="chips"><span class="chip">ngpus=1 A100</span><span class="chip">ncpus=8</span><span class="chip">mem=48gb</span><span class="chip">walltime=24:00:00</span><span class="chip">peak ≈25–40 GB</span></div>
+      <pre><code>export MODEL_ID=Qwen/Qwen3-4B
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=qwen3-4b
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-qwen3-4b
+export LR=1.5e-4
+export LOCAL_BATCH_SIZE=2
+export GLOBAL_BATCH_SIZE=32
+export MAX_LENGTH=2048
+export NUM_EPOCHS=2
+export GROUP_BY_LENGTH=true
+export USE_TRITON=true
+export CKPT_EVERY_STEPS=250
+export VAL_EVERY_STEPS=250
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+bash &lt;repo&gt;/0.peft/run_peft_training.sh train</code></pre>
+    </section>
+
+    <section class="modelcard">
+      <h3>Qwen3‑8B — quality pick for PEFT ★</h3>
+      <div class="chips"><span class="chip">ngpus=1 A100</span><span class="chip">ncpus=8</span><span class="chip">mem=64gb</span><span class="chip">walltime=36:00:00</span><span class="chip">peak ≈30–48 GB</span></div>
+      <pre><code>export MODEL_ID=Qwen/Qwen3-8B
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=qwen3-8b
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-qwen3-8b
+export LR=1e-4
+export LOCAL_BATCH_SIZE=1
+export GLOBAL_BATCH_SIZE=32
+export MAX_LENGTH=2048
+export NUM_EPOCHS=2
+export GROUP_BY_LENGTH=true
+export USE_TRITON=true
+export CKPT_EVERY_STEPS=250
+export VAL_EVERY_STEPS=250
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+bash &lt;repo&gt;/0.peft/run_peft_training.sh train</code></pre>
+    </section>
+
+    <section class="modelcard">
+      <h3>Qwen3‑14B — ceiling (only after a clean shape‑smoke)</h3>
+      <div class="chips"><span class="chip">ngpus=1 A100</span><span class="chip">ncpus=8</span><span class="chip">mem=96gb</span><span class="chip">walltime=72:00:00</span><span class="chip">peak ≈50–72 GB</span></div>
+      <pre><code>export MODEL_ID=Qwen/Qwen3-14B
+export SIF_PATH=&lt;repo&gt;/Containers/nemo-automodel_26.04.00.sif
+export RUN_NAME=qwen3-14b
+export CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints-qwen3-14b
+export LR=8e-5
+export LOCAL_BATCH_SIZE=1
+export GLOBAL_BATCH_SIZE=32
+export MAX_LENGTH=2048
+export NUM_EPOCHS=2
+export GROUP_BY_LENGTH=true
+export USE_TRITON=true
+export CKPT_EVERY_STEPS=250
+export VAL_EVERY_STEPS=250
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+bash &lt;repo&gt;/0.peft/run_peft_training.sh train</code></pre>
+    </section>
+
+    <section class="modelcard">
+      <h3>What “done” looks like (every row)</h3>
+      <ul>
+        <li>Train exit 0; ≈2,144 steps; finite/decreasing loss in <code>0.peft/logs/train-*.log</code>.</li>
+        <li>Adapter at <code>checkpoints-&lt;tag&gt;/epoch_*/model/</code> (<code>adapter_config.json</code> + safetensors) — this <code>model/</code> dir is the deliverable to archive/upload/merge.</li>
+        <li><code>infer</code> summary shows format PASS with the same <code>MODEL_ID</code>.</li>
+        <li>Keep with the adapter: rendered recipe <code>0.peft/runs/recipes/train-&lt;RUN_NAME&gt;.yaml</code>, the train log, exact <code>MODEL_ID</code>, and git commit. Copy out of scratch before any purge window.</li>
+        <li>If you later change LR/batch/length, that is a <i>new run</i>: new <code>RUN_NAME</code> + new <code>CHECKPOINT_DIR</code>.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Decision shortcut</h2>
+    <ul>
+      <li><b>First cluster run:</b> 0.6B row, exactly as written.</li>
+      <li><b>Default final model:</b> <b>4B</b> — best insurance for the later one‑GPU RLVR stage.</li>
+      <li><b>If PEFT quality is the priority and you’ll validate RLVR separately:</b> <b>8B</b>.</li>
+      <li><b>14B</b> only with a clean production‑shape smoke (peak ≤72 GB), the 72 h request (or formula value), and acceptance that downstream GRPO may not follow on this cluster shape.</li>
+    </ul>
+    <p class="small">Basis: bf16 weights = params × 2 B; LoRA trainables computed from official Qwen3 config shapes at r=32 on q/k/v/o/gate/up/down; activation allowance for no‑checkpointing training at len 2048; dataset token stats from <code>Tuning.md</code> (p50 267 / p90 1343 / p95 3404; 2048 truncates ≈7.5%). All VRAM/time figures are pre‑smoke planning estimates for this recipe — the production‑shape smoke replaces them with measurements.</p>
+  </div>
+</main>
+</body>
+</html>
