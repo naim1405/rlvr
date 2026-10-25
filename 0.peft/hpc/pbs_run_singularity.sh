@@ -19,7 +19,8 @@ HPC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PEFT_HOST_DIR="$(cd "$HPC_DIR/.." && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "$PEFT_HOST_DIR/.." && pwd)}"
 SIF_PATH="${SIF_PATH:-$REPO_ROOT/Containers/nemo-automodel_26.04.00.sif}"
-MODEL_ID="${MODEL_ID:-Qwen/Qwen3-0.6B}"
+MODEL_ID="${MODEL_ID:-Qwen/Qwen3-8B}"
+PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 
 # --- find the container runtime ------------------------------------------------
 # Older Griffith nodes: Singularity is a module. New nodes: system install.

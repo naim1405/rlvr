@@ -24,7 +24,7 @@ set -euo pipefail
 
 PEFT_DIR="${PEFT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 MODE="${1:-smoke}"
-MODEL_ID="${MODEL_ID:-${PEFT_BASE_MODEL:-Qwen/Qwen3-0.6B}}"
+MODEL_ID="${MODEL_ID:-${PEFT_BASE_MODEL:-Qwen/Qwen3-8B}}"
 DATA_PATH="${DATA_PATH:-$PEFT_DIR/dataset/train.jsonl}"
 RUN_NAME="${RUN_NAME:-${PBS_JOBID:-local}}"
 # PBS job ids can contain characters we do not want in a directory name.

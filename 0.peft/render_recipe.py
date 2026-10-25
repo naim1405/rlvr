@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render a concrete NeMo AutoModel PEFT recipe for one run.
 
-The committed ``recipe.yaml`` is the template/default for Qwen3-0.6B. This
+The committed ``recipe.yaml`` is the configured core recipe for Qwen3-8B. This
 script copies it and rewrites only the run-specific fields:
 
 * base model id (``model.pretrained_model_name_or_path``),
@@ -16,7 +16,7 @@ configuration that produced it, and switching to a larger dense Qwen model
 does not require hand-editing the committed template.
 
 Examples:
-    python3 render_recipe.py --model Qwen/Qwen3-0.6B \
+    python3 render_recipe.py --model Qwen/Qwen3-8B \
         --out runs/recipes/smoke.yaml --smoke
 
     python3 render_recipe.py --model Qwen/Qwen3-8B \
@@ -45,7 +45,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without PyYAML
 HERE = Path(__file__).resolve().parent
 DEFAULT_BASE = HERE / "recipe.yaml"
 DEFAULT_CONTAINER_PEFT_DIR = "/workspace/rlvr/0.peft"
-DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
+DEFAULT_MODEL = "Qwen/Qwen3-8B"
 
 # Conservative starting micro-batch sizes for ONE 80 GB GPU, sequence length
 # 2048, bf16 LoRA, and no activation checkpointing in the base recipe.
@@ -236,7 +236,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("PEFT_DIR", DEFAULT_CONTAINER_PEFT_DIR),
         help="Absolute path of 0.peft *inside* the container",
     )
-    parser.add_argument("--model", default=None, help="HF model id or local path (default: $MODEL_ID or Qwen/Qwen3-0.6B)")
+    parser.add_argument("--model", default=None, help="HF model id or local path (default: $MODEL_ID or Qwen/Qwen3-8B)")
     parser.add_argument("--data", default=None, help="train.jsonl path inside the container")
     parser.add_argument("--checkpoint-dir", default=None, help="Checkpoint dir inside the container")
     parser.add_argument("--preset", choices=PRESET_NAMES, default="auto")

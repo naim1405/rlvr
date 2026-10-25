@@ -7,11 +7,12 @@
 # allocated GPU compute node, finds Singularity/Apptainer, starts the NeMo
 # AutoModel container with --nv, and runs the PEFT pipeline inside it.
 #
-# A PBS job body only needs something like:
+# A PBS job body only needs:
 #
-#   export MODEL_ID=Qwen/Qwen3-0.6B
-#   export SIF_PATH=/scratch/$USER/rlvr/Containers/nemo-automodel_26.04.00.sif
-#   bash /scratch/$USER/rlvr/0.peft/run_peft_training.sh smoke
+#   bash /scratch/$USER/rlvr/0.peft/run_peft_training.sh train
+#
+# The Qwen3-8B model, default SIF path, and training knobs are preset in
+# recipe.yaml and the launch scripts; no configuration exports are required.
 #
 # Modes (run in this order):
 #   check           GPU/framework sanity only
@@ -67,7 +68,7 @@ log_file="$LOG_DIR/${MODE}-${stamp}-${job_tag}.log"
   echo "[run_peft_training] mode=$MODE"
   echo "[run_peft_training] script=$PEFT_DIR/run_peft_training.sh"
   echo "[run_peft_training] log_file=$log_file"
-  echo "[run_peft_training] MODEL_ID=${MODEL_ID:-Qwen/Qwen3-0.6B}"
+  echo "[run_peft_training] MODEL_ID=${MODEL_ID:-Qwen/Qwen3-8B}"
   echo "[run_peft_training] SIF_PATH=${SIF_PATH:-<repo default: ../Containers/nemo-automodel_26.04.00.sif>}"
 } | tee -a "$log_file"
 

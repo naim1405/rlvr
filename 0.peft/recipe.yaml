@@ -1,10 +1,10 @@
 # Qwen PEFT/LoRA SFT recipe for output format learning.
 #
-# This file is the TEMPLATE/default (Qwen3-0.6B). The launch wrappers
-# (run_in_container.sh) first render a per-run copy with render_recipe.py -
-# rewriting the model id, the absolute container paths below, and batch
-# sizes - then run `automodel` on the rendered file. You should not need
-# to hand-edit this file to change the model.
+# This is the configured core recipe for Qwen/Qwen3-8B. The model and all
+# training knobs below are preset for the cluster run; no model, batch-size,
+# learning-rate, epoch, checkpoint, or validation environment variables are
+# required. Launch wrappers may write a rendered copy for traceability, but
+# they do not need run-specific configuration.
 #
 # Canonical layout inside ANY container (Docker locally, Singularity on
 # the cluster): the repo is bind-mounted at /workspace/rlvr, so
@@ -23,9 +23,9 @@ recipe: TrainFinetuneRecipeForNextTokenPrediction
 
 step_scheduler:
   global_batch_size: 32
-  local_batch_size: 4
-  ckpt_every_steps: 500
-  val_every_steps: 500
+  local_batch_size: 1
+  ckpt_every_steps: 250
+  val_every_steps: 250
   num_epochs: 2
 
 # NCCL is required for GPU training. Increase timeout to avoid false failures
@@ -41,7 +41,7 @@ rng:
 
 model:
   _target_: nemo_automodel.NeMoAutoModelForCausalLM.from_pretrained
-  pretrained_model_name_or_path: Qwen/Qwen3-0.6B
+  pretrained_model_name_or_path: Qwen/Qwen3-8B
   torch_dtype: bf16
   trust_remote_code: true
 
@@ -106,7 +106,7 @@ optimizer:
   _target_: torch.optim.AdamW
   betas: [0.9, 0.999]
   eps: 1e-8
-  lr: 2.0e-4
+  lr: 1.0e-4
   weight_decay: 0
 
 ci:

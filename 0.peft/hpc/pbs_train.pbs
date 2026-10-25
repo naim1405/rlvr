@@ -2,22 +2,15 @@
 # =============================================================================
 # Full PEFT training job for the Griffith gpuq2 queue (1x A100 80GB).
 #
-# Runs the complete recipe.yaml (35k rows, 2 epochs by default) for $MODEL_ID
-# (default Qwen/Qwen3-0.6B). render_recipe.py automatically lowers the
-# micro-batch (local_batch_size) for larger dense Qwen3 models and keeps the
-# effective global batch via gradient accumulation - see CLUSTER_RUNBOOK.md
-# section "Using a bigger Qwen model" for the table and its limits.
+# Runs the configured Qwen/Qwen3-8B recipe.yaml (35k rows, 2 epochs).
+# The model and training knobs are preset in the recipe and launchers;
+# no MODEL_ID or training-knob environment variables are required.
 #
 # SUBMIT FROM THE REPO ROOT (so $PBS_O_WORKDIR is the repo):
 #   qsub 0.peft/hpc/pbs_train.pbs
-#   qsub -v MODEL_ID=Qwen/Qwen3-4B 0.peft/hpc/pbs_train.pbs
-#   qsub -v MODEL_ID=Qwen/Qwen3-8B,LR=1e-4,RUN_NAME=qwen3-8b-try1 \
-#        0.peft/hpc/pbs_train.pbs
 #
-# Resource notes: request what you need, not the queue maximum. Oversized
-# mem/walltime requests delay scheduling ("your job will never run").
-# A 0.6B-8B LoRA run is comfortable in 64 GB host RAM; raise to 96gb only
-# if the log shows host OOM while loading a 14B model.
+# Resource notes: sized for the configured Qwen3-8B LoRA run on one
+# A100 80GB (64 GB host RAM, 36 h walltime request).
 #
 # If your allocation needs an account/project code, duplicate one of the
 # commented lines below WITHOUT the extra leading '#', and fill it in:
@@ -29,7 +22,7 @@
 #PBS -N peft-train
 #PBS -q gpuq2
 #PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
-#PBS -l walltime=24:00:00
+#PBS -l walltime=36:00:00
 #PBS -j oe
 
 set -euo pipefail
