@@ -1,0 +1,18 @@
+# Gym policy-model server used during NeMo RL training.
+# Token ids must be returned so GRPO can train on Gym rollouts.
+# Copied from Gym's responses_api_models/vllm_model/configs/vllm_model_for_training.yaml
+# so config_paths can be an absolute path in this repo.
+#
+# The vllm_model *package* still lives in the Gym checkout; this file only
+# configures it. train.py prefers the bundled copy when present.
+
+policy_model:
+  responses_api_models:
+    vllm_model:
+      entrypoint: app.py
+      base_url: ${policy_base_url}
+      api_key: ${policy_api_key}
+      model: ${policy_model_name}
+      return_token_id_information: true
+      request_prompt_and_generation_token_ids: false
+      uses_reasoning_parser: true

@@ -1,0 +1,8 @@
+checkpoints*
+runs/
+logs/
+*.sif
+.singularity-cache/
+# Hugging Face tokens must never be committed (prefer keeping them outside the repo).
+.hf_token
+*.token

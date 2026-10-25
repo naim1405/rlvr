@@ -1,0 +1,26 @@
+[project]
+name = "nemotron-verifier"
+version = "0.1.0"
+description = "P0–P6 RLVR verifiers exposed as a NeMo Gym resources server"
+requires-python = ">=3.10"
+dependencies = [
+    "nemo-gym",
+    "sympy>=1.12",
+    "z3-solver>=4.12",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["app", "score"]
+
+[tool.setuptools.packages.find]
+include = []
+exclude = ["tests*", "verifiers*", "configs*"]
+
+# When this package is copied into $GYM_ROOT/resources_servers/nemotron_verifier,
+# ../../ is the Gym checkout. Gym's setup_env_command uses this for editable installs.
+[tool.uv.sources]
+nemo-gym = { path = "../../", editable = true }
