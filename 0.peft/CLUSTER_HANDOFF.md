@@ -88,9 +88,9 @@ limit the loss if a job hits its walltime.
 ## 3. One-time setup before the first job (login/transfer node)
 
 ```bash
-# 1) code, on shared storage:
+# 1) code, on shared storage (clone checks out main by default):
 git clone https://github.com/naim1405/rlvr.git
-cd rlvr && git switch feat/singularity-peft-port
+cd rlvr
 
 # 2) dataset (required; the .jsonl is not in git):
 cd 0.peft/dataset && unzip -o sft_data.zip && cd ../..   # -> train.jsonl, 35,000 rows

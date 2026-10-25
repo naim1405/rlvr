@@ -34,7 +34,6 @@ All commands below are run **from the repo root** unless stated otherwise.
 ```bash
 git clone https://github.com/naim1405/rlvr.git
 cd rlvr
-git switch feat/singularity-peft-port
 
 cd 0.peft/dataset && unzip -o sft_data.zip && cd ../..
 

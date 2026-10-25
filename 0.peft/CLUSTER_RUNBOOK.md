@@ -90,7 +90,6 @@ Qlist, but only the admins/your Professor can tell you your allocation code.
 # in your chosen scratch/project directory:
 git clone https://github.com/naim1405/rlvr.git
 cd rlvr
-git switch feat/singularity-peft-port
 
 cd 0.peft/dataset && unzip -o sft_data.zip && cd ../..
 wc -l 0.peft/dataset/train.jsonl          # expect 35000
@@ -415,7 +414,7 @@ qsub -v MODEL_ID=Qwen/Qwen3-8B,CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints
 ## 11. End-to-end checklist
 
 - [ ] Orientation done: runtime command, scratch path + quota/purge known, internet question answered for login **and** compute nodes.
-- [ ] Repo cloned on `feat/singularity-peft-port` in scratch; `train.jsonl` extracted (35,000 lines).
+- [ ] Repo cloned (default `main`) in scratch and up to date; `train.jsonl` extracted (35,000 lines).
 - [ ] `.sif` built/transferred; `singularity inspect` passes; you know its size and path.
 - [ ] Model prefetched (or online first run accepted); smoke passes with `HF_HUB_OFFLINE=1` if applicable.
 - [ ] `pbs_smoke` green: A100 visible in-container, loss finite, `checkpoints-smoke/epoch_*/model/` exists, rendered recipe read.
@@ -427,7 +426,7 @@ qsub -v MODEL_ID=Qwen/Qwen3-8B,CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints
 
 ---
 
-*Scope note:* this branch ports **stage 1 (PEFT)** only. The GRPO/RLVR stage
+*Scope note:* `0.peft/` covers **stage 1 (PEFT)** only. The GRPO/RLVR stage
 (`nemotron_rlvr/`) brings Ray + vLLM + NeMo Gym into a second container and a
 different PBS shape (still one GPU, colocated) — port it the same way
 (one in-container entrypoint, rendered configs, smoke job first) when you get
