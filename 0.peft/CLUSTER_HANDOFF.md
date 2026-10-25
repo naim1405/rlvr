@@ -116,8 +116,11 @@ Environment facts the setup depends on:
   later jobs set `HF_HUB_OFFLINE=1`. If registry pulls from the cluster
   are rate-limited, the `.sif` can be built elsewhere and copied in;
   it's a single self-contained file.
-- **No secrets needed**: the Qwen3 models are public. (`HF_TOKEN` is only
-  required if a gated model is ever substituted.)
+- **No secrets needed for the training jobs**: the Qwen3 models are public.
+  (`HF_TOKEN` is only required if a gated model is ever substituted.)
+  Uploading the finished adapter to Hugging Face is a separate, optional
+  post-training step (§5) with its own write token — it is **not** part of
+  `run_peft_training.sh` and needs no PBS/GPU job.
 - The image filesystem is read-only and the job runs as the submitting
   user — standard Singularity behaviour; nothing to install on nodes.
 
@@ -149,6 +152,43 @@ Every run also leaves its **exact effective config** at
 `0.peft/logs/<mode>-*.log` (in addition to the PBS output file). If a job
 fails, those two files plus the PBS stdout/stderr are what I need to
 diagnose it — please send them back rather than re-running blind.
+
+### Optional: upload the finished adapter to Hugging Face (separate; not a PBS job)
+
+Training **never uploads anything** — having `HF_TOKEN` set during
+`smoke`/`train`/`infer` only affects downloads. If a HF copy of the adapter
+is wanted, there is a standalone uploader,
+`0.peft/upload_to_huggingface.py`, run *after* `train`/`infer` from
+anywhere with internet and the adapter on disk (login/transfer node or a
+laptop after copying the adapter down — no GPU, no PBS). By default this is
+the project owner's job, because it needs **their** Hugging Face write
+token; please don't be handed (or hold) anyone's long-lived personal token
+for it.
+
+What the uploader needs, if it is ever run from the cluster: the
+destination repo (URL or `<namespace>/<repo>` id), the exact upload folder,
+and a **write** token passed only via the environment (or a token file
+outside the repo):
+
+```bash
+# choose the final/best adapter explicitly (upload model/, NOT the whole epoch_* dir):
+ADAPTER_DIR=<repo>/0.peft/checkpoints/<epoch_step>/model
+# destination repo should already exist as PRIVATE (or add --create-repo:
+# private by default; it does not change an already-public repo):
+read -rsp 'HF write token: ' HF_TOKEN && export HF_TOKEN   # or: --token-file <path outside the repo>
+python3 <repo>/0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<namespace>/<private-adapter-repo> \
+  --upload-folder "$ADAPTER_DIR" --require-adapter --dry-run
+python3 <repo>/0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<namespace>/<private-adapter-repo> \
+  --upload-folder "$ADAPTER_DIR" --require-adapter \
+  --commit-message "Stage 0 PEFT LoRA adapter"
+```
+
+It requires Python + `huggingface_hub` (`python3 -m pip install
+huggingface_hub` if the node lacks it; also present inside the NeMo
+container). If a temporary fine-grained write token was minted for this,
+revoke it afterwards. Full details: `CLUSTER_RUNBOOK.md` §7.
 
 ## 6. Quick answers to likely questions
 

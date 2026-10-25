@@ -220,15 +220,69 @@ When it completes:
    `qsub -v MODEL_ID=Qwen/Qwen3-0.6B,INFER_SHOW_EXPECTED=1 0.peft/hpc/pbs_infer.pbs`
    and read the PASS/FAIL summary in `peft-infer.o*`.
 3. **Copy the adapter (and the job log + rendered recipe) out of scratch** if
-   scratch is purged: `rsync -az 0.peft/checkpoints/epoch_1/ <you>@<your-machine>:...`
+   scratch is purged: `rsync -az 0.peft/checkpoints/<epoch_step>/model/ <you>@<your-machine>:...`
    The adapter is the input to the merge step
    (`nemotron_rlvr/scripts/merge_peft.py --base Qwen/Qwen3-0.6B --adapter ...`),
    wherever you run that next.
+4. **Optional:** also park the same `model/` directory in a private
+   Hugging Face repo with the separate uploader (next subsection). This is
+   a copy for convenience/archival — training itself never uploads, and
+   `HF_TOKEN` being set during a job does **not** enable uploading.
 
 Useful monitoring while it runs: `qstat -f <jobid>` (resources used vs
 requested — check host RAM headroom), and your `.o` log for loss/step lines.
 You can't `nvidia-smi` a running job from the login node unless the site gives
 you node access; the training log is your window.
+
+### Optional post-step — upload the adapter to Hugging Face
+
+`0.peft/upload_to_huggingface.py` uploads **one local folder** to a
+Hugging Face repo. It is deliberately separate from
+`run_peft_training.sh`/`run_in_container.sh`: nothing calls it
+automatically, it needs no GPU or PBS slot, and it can run on a login /
+transfer node (or on your laptop once the adapter is copied down). It needs
+three inputs — a **write** token, the destination repo, and the upload
+folder:
+
+```bash
+# 1) destination: create the model repo as PRIVATE in the HF web UI first
+#    (or add --create-repo below: private by default, but it will not make an
+#     already-public repo private).
+# 2) choose the checkpoint explicitly; upload its model/ subdir only:
+ls -td 0.peft/checkpoints/epoch_*/model
+ADAPTER_DIR=0.peft/checkpoints/<epoch_step>/model
+# 3) token via environment (never commit it; --token-file <path outside the
+#    repo> and an interactive hidden prompt also work):
+read -rsp 'HF write token: ' HF_TOKEN && export HF_TOKEN
+# 4) dry-run first (no token/network), then for real:
+python3 0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<you>/<private-adapter-repo> \
+  --upload-folder "$ADAPTER_DIR" --require-adapter --dry-run
+python3 0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<you>/<private-adapter-repo> \
+  --upload-folder "$ADAPTER_DIR" --require-adapter \
+  --commit-message "Stage 0 PEFT LoRA adapter"
+```
+
+Notes:
+
+- `--repo-id <you>/<repo>` is equivalent to `--repo-url ...`;
+  `HF_REPO_URL`/`HF_REPO_ID` and `UPLOAD_FOLDER` provide environment
+  defaults. Use `--path-in-repo <subdir>` only if you don't want the
+  adapter files at the repo root.
+- `--require-adapter` refuses anything that isn't an adapter `model/` dir
+  (`adapter_config.json` + safetensors). **Never** upload the whole
+  `epoch_*/` checkpoint (`optim/`, `dataloader/`, `rng/` are resume state,
+  not part of the deliverable) — the script warns if you try.
+- The token must have **write** access to that repo (a fine-grained token
+  scoped to the one repo is ideal). A read-only token fails with 401/403.
+  Prefer doing the upload yourself over handing anyone a token; if a
+  one-off token is minted for a cluster-side upload, revoke it afterwards.
+- It requires `huggingface_hub` (`python3 -m pip install huggingface_hub`
+  on a bare machine; already present in the NeMo container). After
+  uploading, sanity-check by loading the adapter back (`infer.py`, or a
+  fresh clone/`snapshot_download` of the HF repo) before treating HF as
+  your archival copy.
 
 ## 8. Using a bigger Qwen model — what actually changes
 
@@ -324,7 +378,7 @@ checkpoint you need is complete before deleting the job's output.
 | `NUM_EPOCHS`, `MAX_LENGTH`, `LR`, `SEED` | 2 / 2048 / 2e-4 / 1111 | Training knobs (see `Tuning.md`). |
 | `GROUP_BY_LENGTH` | `true` | Set `false` if OOM strikes mid-epoch. |
 | `HF_HUB_OFFLINE` | unset | `1` after prefetch, to prove the cache is complete. |
-| `HF_TOKEN` | unset | Only for gated models. Never commit it. |
+| `HF_TOKEN` | unset | Training jobs: only for downloading gated models (forwarded by the launchers). It does **not** enable uploads — the separate `upload_to_huggingface.py` (§7) reads it as a *write* token when you run that script. Never commit it. |
 | `ADAPTER_PATH` | newest in `CHECKPOINT_DIR` | Infer jobs: **container** path to one adapter. |
 | `INFER_NUM_SAMPLES`, `INFER_SHOW_EXPECTED`, `INFER_QUESTION` | 10 / 0 / – | Infer jobs only. |
 
@@ -352,6 +406,9 @@ qsub -v MODEL_ID=Qwen/Qwen3-8B,CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints
 | CUDA OOM mid-epoch | Long `group_by_length` batch | `-v GROUP_BY_LENGTH=false`. |
 | Host (RAM) OOM / job killed with no Python traceback | `mem` too small for model load | Raise `mem` in `pbs_train.pbs` (64→96 GB); check `qstat -f` `resources_used.mem`. |
 | Checkpoints missing after job | Wrote outside the bind mount, or scratch purged | Keep `CHECKPOINT_DIR` under `/workspace/rlvr/...`; copy adapters out promptly. |
+| Nothing appeared on Hugging Face after `train` | By design: training never uploads; `HF_TOKEN` only authenticates downloads | Run the separate `upload_to_huggingface.py` post-step (§7) with a write token, the repo URL/id, and `--upload-folder .../model --require-adapter`. |
+| HF upload fails 401/403 | Missing, read-only, or wrong-repo token | Use a **write** (ideally fine-grained, single-repo) token via `HF_TOKEN`/`--token-file`; check the repo namespace matches the token owner. |
+| HF upload fails 404 | Destination repo doesn't exist (uploads don't create repos) | Pre-create it as a **private model** repo, or add `--create-repo` (private by default). |
 | Infer all FAIL after "successful" training | Base/adapter mismatch, or undertrained | Check the `Base:`/`Adapter:` lines in the infer log against §8.2; if they match, train longer / adjust LR. |
 | `.sif` build fails with registry rate limits | Registry throttling from campus IPs | Build the `.sif` at home and `scp` it (§4) — the file is self-contained. |
 
@@ -366,6 +423,7 @@ qsub -v MODEL_ID=Qwen/Qwen3-8B,CHECKPOINT_DIR=/workspace/rlvr/0.peft/checkpoints
 - [ ] `pbs_train` submitted with correct `MODEL_ID` (+ size-appropriate `LR`/walltime from §8).
 - [ ] Final adapter format-checked with the **same** `MODEL_ID`.
 - [ ] Adapter + `peft-train.o*` log + rendered recipe copied out of scratch; base-model id recorded with them for the merge step.
+- [ ] *(Optional)* Adapter `model/` uploaded to a **private** HF repo via `upload_to_huggingface.py` (§7), then verified by loading it back; any one-off write token revoked.
 
 ---
 

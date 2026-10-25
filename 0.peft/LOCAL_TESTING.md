@@ -54,6 +54,11 @@ new piece of logic in this port, so it has unit tests:
 python3 0.peft/test_render_recipe.py
 # .......  Ran 7 tests ... OK        (needs only PyYAML: pip install pyyaml)
 
+# The optional HF uploader is tested the same way (fake HF client: no
+# network, no real token, huggingface_hub not even required):
+python3 0.peft/test_upload_to_huggingface.py
+# ......................  Ran 22 tests ... OK
+
 # Eyeball a rendered recipe yourself:
 python3 0.peft/render_recipe.py --model Qwen/Qwen3-8B \
     --out /tmp/recipe-8b.yaml && sed -n '1,60p' /tmp/recipe-8b.yaml
@@ -206,6 +211,18 @@ Output: `0.peft/checkpoints/epoch_*/model/`. Validate with level 4 pointed at
 `CHECKPOINT_DIR` is needed). This full local run is a good baseline, but it is
 **not required** before using the cluster — levels 0–4 are the pre-flight.
 
+If you want a Hugging Face copy of a local adapter, rehearse the (separate,
+manual) upload with `--dry-run` first — it validates the repo URL/id and the
+adapter directory without a token or network; the real upload workflow is in
+[CLUSTER_RUNBOOK.md](CLUSTER_RUNBOOK.md) §7:
+
+```bash
+python3 0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<you>/<private-adapter-repo> \
+  --upload-folder 0.peft/checkpoints/<epoch_step>/model \
+  --require-adapter --dry-run
+```
+
 ## 8. Trying a different model size locally
 
 The model is one environment variable everywhere:
@@ -235,7 +252,7 @@ read the base back from `adapter_config.json`, but explicit is better.
 | Container can't write checkpoints / HF cache | Writing outside the bind mount (image is read-only) | Keep everything under the repo (mounted at `/workspace/rlvr`). The launchers already do; don't override `CHECKPOINT_DIR`/`HF_HOME` to non-mounted paths. |
 | `Dataset path does not exist` / `ERROR: dataset not found` | `train.jsonl` not extracted, or wrong mount | `cd 0.peft/dataset && unzip -o sft_data.zip`; always launch via the `hpc/` scripts so the mount is `/workspace/rlvr`. |
 | `_target_` import error for `mydataset.py` | Recipe rendered for a different container path | Re-run through `run_in_container.sh` (it renders with the correct `--container-peft-dir`); inspect `0.peft/runs/recipes/*.yaml`. |
-| Download stalls / 401 from Hugging Face | Network, or a gated custom model | Qwen3 models are public; for gated models set `HF_TOKEN=...` in the environment (the launchers forward it). After one online run, `HF_HUB_OFFLINE=1` proves the cache is complete. |
+| Download stalls / 401 from Hugging Face | Network, or a gated custom model | Qwen3 models are public; for gated models set `HF_TOKEN=...` in the environment (the launchers forward it — for downloads only; uploading is the separate `upload_to_huggingface.py` step). After one online run, `HF_HUB_OFFLINE=1` proves the cache is complete. |
 | CUDA OOM at step 0 | Micro-batch × sequence too big | `LOCAL_BATCH_SIZE=2` (or 1), then `MAX_LENGTH=1024`. Keep `GLOBAL_BATCH_SIZE` divisible by the local size. |
 | CUDA OOM mid-epoch, fine at the start | A long `group_by_length` batch | `GROUP_BY_LENGTH=false` (smooths peaks, slightly slower) — see `Tuning.md`. |
 | Everything passes but infer is all FAIL | Base/adapter mismatch or truncation | Confirm the `Base:` line printed by `infer.py` equals the training model; raise `INFER_MAX_NEW_TOKENS`. |

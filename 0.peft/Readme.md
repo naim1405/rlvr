@@ -38,6 +38,15 @@ bash 0.peft/hpc/build_sif.sh
 qsub 0.peft/hpc/pbs_smoke.pbs
 qsub 0.peft/hpc/pbs_train.pbs
 qsub -v MODEL_ID=Qwen/Qwen3-0.6B 0.peft/hpc/pbs_infer.pbs
+
+# 4. optional, AFTER training: upload one chosen adapter dir to Hugging Face.
+#    This is a separate manual step -- training never uploads anything, and
+#    HF_TOKEN alone does not turn uploads on.
+export HF_TOKEN=<write-token>          # keep out of git/chat; see CLUSTER_RUNBOOK.md §7
+python3 0.peft/upload_to_huggingface.py \
+  --repo-url https://huggingface.co/<you>/<private-adapter-repo> \
+  --upload-folder 0.peft/checkpoints/<epoch_step>/model \
+  --require-adapter --dry-run           # remove --dry-run to actually upload
 ```
 
 **Changing the base model** is `MODEL_ID=Qwen/Qwen3-4B` (etc.) in front of the
@@ -55,7 +64,9 @@ what else changes with size (micro-batch, and the limits at 32B).
 | `mydataset.py` | Chat-format SFT dataset; loss on assistant tokens only. |
 | `smoke_test_dataset.py` | Dataloader/tokenizer check (no training). |
 | `infer.py` | Checkpoint tester: generation + format PASS/FAIL. Base model comes from `--base`/`$MODEL_ID`/`adapter_config.json`. |
+| `upload_to_huggingface.py` | Optional **separate** post-training uploader: takes a HF write token (`HF_TOKEN`/`--token-file`), a repo URL or id, and one folder (normally `checkpoints/epoch_*/model/`) and uploads it with `huggingface_hub`. Never called by training. |
 | `test_render_recipe.py` | CPU-only unit tests for the renderer (run anywhere with PyYAML). |
+| `test_upload_to_huggingface.py` | CPU-only unit tests for the uploader (fake HF client; no network or real token). |
 | `hpc/build_sif.sh` | Docker image → `.sif` conversion (login/transfer node or local Linux). |
 | `hpc/run_local_docker.sh` | Local Docker launcher. |
 | `hpc/run_local_singularity.sh` | Local Apptainer/Singularity launcher (exact cluster layout). |
