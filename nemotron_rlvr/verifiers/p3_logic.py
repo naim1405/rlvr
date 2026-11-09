@@ -108,15 +108,24 @@ def _parse_kk_answer(text: str, people: list[str]) -> dict[str, str] | None:
 
 
 def _yesno(text: str) -> bool | None:
+    """Yes/No from an answer, rejecting anything ambiguous.
+
+    A clean single token is honored directly. Otherwise the whole answer is
+    scanned: if it contains a yes-token AND a no-token (e.g. "yes... actually
+    no"), it is ambiguous and returns None so the reward is 0 rather than
+    silently crediting whichever word came first.
+    """
     t = text.strip().lower().strip(".'\"")
     if t in _YES:
         return True
     if t in _NO:
         return False
-    head = re.split(r"[\s,.:;]+", t, 1)[0]
-    if head in _YES:
+    toks = [tok for tok in re.split(r"[\s,.:;]+", t) if tok]
+    has_yes = any(tok in _YES for tok in toks)
+    has_no = any(tok in _NO for tok in toks)
+    if has_yes and not has_no:
         return True
-    if head in _NO:
+    if has_no and not has_yes:
         return False
     return None
 
@@ -145,17 +154,22 @@ class LogicVerifier:
                 people = list(meta["people"])
                 if len(people) > _MAX_UNIVERSE:
                     return False
-                env: dict[str, z3.BoolRef] = {p: z3.Bool(p) for p in people}
-                s = _solver()
-                for p in people:
-                    stmt = _build(meta["statements"][p], env)
-                    s.add(env[p] == stmt)
-                if s.check() != z3.sat:
-                    return False
-                m = s.model()
-                sol = {p: ("knight" if z3.is_true(m.eval(env[p], True)) else "knave") for p in people}
                 parsed = _parse_kk_answer(ans, people)
-                return parsed == sol
+                if parsed is None:
+                    return False
+                # Score by constraint satisfaction, not equality to one model:
+                # a knight's statement must be true and a knave's false under
+                # the submitted assignment. This accepts any valid solution
+                # (and still matches equality-scoring when the puzzle is unique).
+                vals: dict[str, z3.BoolRef] = {
+                    p: z3.BoolVal(parsed[p] == "knight") for p in people
+                }
+                for p in people:
+                    stmt = _build(meta["statements"][p], vals)
+                    status = z3.BoolVal(parsed[p] == "knight")
+                    if not z3.is_true(z3.simplify(stmt == status)):
+                        return False
+                return True
 
             if kind == "entailment":
                 env: dict[str, z3.BoolRef] = {}

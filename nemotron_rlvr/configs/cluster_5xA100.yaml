@@ -1,0 +1,210 @@
+# =============================================================================
+# 5x A100 80GB GRPO config (4 trainer GPUs + 1 dedicated vLLM rollout GPU).
+#
+#   python3 train.py --config configs/cluster_5xA100.yaml
+#
+# Layout
+#   - 4 GPUs run the Megatron policy (TP=2, CP=2); 1 GPU runs the vLLM rollout
+#     server (non-colocated). This keeps generation off the training GPUs so a
+#     7B policy trains at full precision with comfortable activation headroom.
+#   - bf16 weights/activations, FP32 in the optimizer and gradient reduction
+#     (the "FP32 in the critical path" finding: keep loss/advantage math in
+#     FP32 even when the model is bf16).
+#
+# Differences from the single-GPU smoke config that matter for the science
+#   1. reference_policy_kl_penalty is NONZERO (0.01). Training with KL=0 lets
+#      the policy drift arbitrarily far from the reference, which both weakens
+#      the "RLVR stays close to base" account and invites reward-hacking
+#      collapse. Sweep this (0.0 / 0.005 / 0.01 / 0.03) and report it.
+#   2. Group size 8 (num_generations_per_prompt) with leave-one-out baseline,
+#      so all-correct / all-wrong groups are rarer and the advantage is less
+#      noisy.
+#
+# Set policy.model_name to the merged SFT checkpoint for the base you chose,
+# and megatron_cfg.converter_type to that base's architecture (e.g.
+# Qwen2ForCausalLM for Qwen2.5, the Qwen3 converter for Qwen3).
+# =============================================================================
+
+run:
+  data: data/train-split.jsonl
+  model: /workspace/rlvr/0.peft/checkpoints/qwen_merged_sft
+  env:
+    container: nvcr.io/nvidia/nemo-rl:v0.5.0.nemotron_3_super
+    env_vars:
+      NRL_VLLM_USE_V1: "1"
+      VLLM_ATTENTION_BACKEND: "FLASH_ATTN"
+
+cluster:
+  num_nodes: 1
+  gpus_per_node: 5
+
+checkpointing:
+  enabled: true
+  checkpoint_dir: "checkpoints/rlvr_5xa100"
+  metric_name: "val:total_reward/mean"
+  higher_is_better: true
+  keep_top_k: 5
+  save_period: 50
+  model_save_format: null          # Megatron torch_dist; convert to HF afterwards
+  save_consolidated: false
+  save_optimizer: true
+
+grpo:
+  num_prompts_per_step: 32
+  num_generations_per_prompt: 8     # group size 8
+  num_val_generations_per_prompt: 2
+  max_rollout_turns: 1
+  max_num_epochs: 1
+  max_num_steps: 1000
+  normalize_rewards: true
+  use_leave_one_out_baseline: true
+  advantage_clip_low: -10
+  advantage_clip_high: 10
+  penalize_invalid_tool_call: true
+  invalid_tool_call_advantage: -5.0
+  penalize_malformed_thinking: true
+  malformed_thinking_advantage: -5.0
+  val_period: 50
+  val_at_start: true
+  val_at_end: true
+  seed: 42
+  # 16 per family x 7 families; interleaved loader makes the slice balanced.
+  max_val_samples: 112
+  val_batch_size: 16
+  async_grpo:
+    enabled: true
+    max_trajectory_age_steps: 1
+    in_flight_weight_updates: true
+    recompute_kv_cache_after_weight_updates: false
+
+loss_fn:
+  # NONZERO KL anchor to the reference policy. Sweep this knob.
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.28
+  use_importance_sampling_correction: true
+  truncated_importance_sampling_ratio: 5
+  token_level_loss: true
+
+policy:
+  model_name: "/workspace/rlvr/0.peft/checkpoints/qwen_merged_sft"
+  tokenizer:
+    name: ${policy.model_name}
+  train_global_batch_size: 256
+  train_micro_batch_size: 1
+  generation_batch_size: 32
+  logprob_batch_size: 1
+  max_total_sequence_length: 4096   # answers are short once tier difficulty is capped
+  precision: "bfloat16"
+  max_grad_norm: 1.0
+
+  sequence_packing:
+    enabled: true
+    train_mb_tokens: 4096
+    logprob_mb_tokens: 4096
+    algorithm: "modified_first_fit_decreasing"
+    microbatch_order: "packer"
+    sequence_length_round: 64
+
+  megatron_cfg:
+    enabled: true
+    empty_unused_memory_level: 2
+    activation_checkpointing: true
+    converter_type: "Qwen2ForCausalLM"   # match the base model's architecture
+    tensor_model_parallel_size: 2
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 2             # 2 x 2 = 4 trainer GPUs
+    sequence_parallel: true
+    pipeline_dtype: ${policy.precision}
+    apply_rope_fusion: true
+    cuda_graph_impl: "none"
+    recompute_granularity: "full"
+    mtp_num_layers: null
+    mtp_loss_scaling_factor: 0.0
+    mtp_use_repeated_layer: false
+    mtp_detach_heads: false
+    checkpoint:
+      async_save: false
+    peft:
+      enabled: false
+    optimizer:
+      optimizer: "adam"
+      lr: 1.0e-6
+      min_lr: 1.0e-7
+      weight_decay: 0.01
+      bf16: true
+      fp16: false
+      params_dtype: "float32"           # FP32 optimizer state
+      adam_beta1: 0.9
+      adam_beta2: 0.999
+      adam_eps: 1.0e-8
+      use_distributed_optimizer: true
+      clip_grad: ${policy.max_grad_norm}
+    scheduler:
+      lr_decay_style: "constant"
+      lr_decay_iters: ${grpo.max_num_steps}
+      lr_warmup_iters: 10
+      lr_warmup_init: 1.0e-7
+    distributed_data_parallel_config:
+      grad_reduce_in_fp32: true          # FP32 gradient reduction
+      overlap_grad_reduce: false
+      overlap_param_gather: false
+      use_custom_fsdp: false
+
+  generation:
+    backend: "vllm"
+    max_new_tokens: 3072
+    temperature: 1.0
+    top_p: 1.0
+    top_k: null
+    stop_token_ids: null
+    stop_strings: null
+    colocated:
+      enabled: false                     # dedicated vLLM GPU
+      resources:
+        gpus_per_node: 1
+        num_nodes: 1
+    vllm_cfg:
+      async_engine: true
+      expose_http_server: true
+      tensor_parallel_size: 1
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
+      gpu_memory_utilization: 0.85
+      max_model_len: 4096
+      enforce_eager: false
+      precision: ${policy.precision}
+      kv_cache_dtype: "auto"
+
+data:
+  shuffle: true
+  num_workers: 1
+  interleave_families: true
+  train:
+    data_path: "data/train-split.jsonl"
+  validation:
+    data_path: "data/val-split.jsonl"
+
+env:
+  should_use_nemo_gym: true
+  nemo_gym:
+    port_range_low: 15001
+    port_range_high: 20000
+    skip_venv_if_present: true
+    config_paths:
+      - responses_api_models/vllm_model/configs/vllm_model_for_training.yaml
+      - resources_servers/nemotron_verifier/configs/nemotron_verifier.yaml
+
+logger:
+  log_dir: "logs"
+  num_val_samples_to_print: 4
+  wandb_enabled: true
+  tensorboard_enabled: true
+  mlflow_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  wandb:
+    project: "rlvr"
+    name: "rlvr-5xa100"

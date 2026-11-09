@@ -9,6 +9,14 @@ from typing import Any
 from verifiers._util import extract_answer
 
 
+def _strip_wrap(s: str) -> str:
+    """Drop one layer of surrounding list/tuple/set brackets and whitespace."""
+    s = s.strip()
+    if len(s) >= 2 and s[0] in "[({" and s[-1] in "])}":
+        s = s[1:-1].strip()
+    return s
+
+
 def _tokenize(text: str, kind: str) -> list[str] | None:
     text = text.strip()
     try:
@@ -18,7 +26,7 @@ def _tokenize(text: str, kind: str) -> list[str] | None:
             return _coerce(toks, kind)
     except (json.JSONDecodeError, ValueError):
         pass
-    parts = [p for p in re.split(r"[\s,;]+", text) if p != ""]
+    parts = [p for p in re.split(r"[\s,;]+", _strip_wrap(text)) if p != ""]
     return _coerce(parts, kind)
 
 
@@ -26,20 +34,21 @@ def _coerce(toks: list[str], kind: str) -> list[str] | None:
     if kind == "int":
         out = []
         for t in toks:
-            t = t.strip()
+            # Tolerate a stray bracket around a lone value, e.g. "[10]" -> "10".
+            t = t.strip().strip("[](){}").strip()
             if re.fullmatch(r"[+-]?\d+", t):
                 out.append(str(int(t)))
             else:
                 return None
         return out
-    return [t.strip() for t in toks]
+    return [t.strip().strip("[](){}").strip() for t in toks]
 
 
 def _as_list(gt: Any, kind: str) -> list[str]:
     if isinstance(gt, (list, tuple)):
         seq = [str(x).strip() for x in gt]
     else:
-        seq = [p for p in re.split(r"[\s,;]+", str(gt)) if p != ""]
+        seq = [p for p in re.split(r"[\s,;]+", _strip_wrap(str(gt))) if p != ""]
     return _coerce(seq, kind) or seq
 
 
