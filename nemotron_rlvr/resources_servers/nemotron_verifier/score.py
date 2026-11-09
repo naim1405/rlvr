@@ -17,10 +17,35 @@ from typing import Any, Optional
 
 _LOG = logging.getLogger("nemotron_verifier")
 
-# Z3 (P3) can SIGSEGV. A thread timeout cannot contain that — it kills Gym
-# and training hangs on "Collecting rollouts". Score P3 in a child process.
-_ISOLATED_TASKS = frozenset({"p3_logic"})
+# Score the native/symbolic verifiers in a child process. Z3 (P3) can SIGSEGV,
+# and SymPy (P1 fallback / P2) can run away in C on pathological input; a thread
+# timeout cannot contain either (it returns while the work keeps burning a core),
+# which stalls Gym on "Collecting rollouts". A child with CPU + memory rlimits
+# contains both: it is killed on breach and reported as reward 0.0.
+# P1's verifier is now pure-Python (exact Fraction compare), so it stays in
+# the fast in-process path. P2 (SymPy on untrusted text) and P3 (Z3) are the
+# ones that can run away or crash, so only those fork the limited child.
+_ISOLATED_TASKS = frozenset({"p2_symbolic", "p3_logic"})
 _CHILD_ENV = "NEMOTRON_VERIFIER_CHILD"
+
+# Hard caps applied inside the scoring child (POSIX).
+_CHILD_CPU_SECONDS = 10
+_CHILD_ADDRESS_SPACE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB
+
+
+def _limit_child() -> None:
+    """preexec hook: bound CPU time and address space of the scoring child."""
+    try:
+        import resource
+
+        resource.setrlimit(
+            resource.RLIMIT_CPU, (_CHILD_CPU_SECONDS, _CHILD_CPU_SECONDS + 2)
+        )
+        resource.setrlimit(
+            resource.RLIMIT_AS, (_CHILD_ADDRESS_SPACE_BYTES, _CHILD_ADDRESS_SPACE_BYTES)
+        )
+    except Exception:
+        pass
 
 _CHILD_BOOTSTRAP = (
     "import json,os,sys;"
@@ -294,6 +319,7 @@ def _score_isolated(
             timeout=_p3_timeout_s(extra_env_info),
             env=env,
             cwd=server_dir,
+            preexec_fn=_limit_child if os.name == "posix" else None,
         )
     except subprocess.TimeoutExpired:
         _LOG.warning("isolated P3 verifier timed out")
